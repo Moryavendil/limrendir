@@ -4,7 +4,7 @@
 ## What is it ?
 
 This software allows to view and save a video stream from a Genicam compatible camera. 
-It is a mashup between Aravis Viewer from the [Arvais project](https://aravisproject.github.io/aravis/), which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
+It is a mashup between Aravis Viewer from the [Aravis project](https://aravisproject.github.io/aravis/), which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
 
 
 ## How to install
@@ -20,7 +20,7 @@ Also, because Aravis relies on it you have to install [meson](https://mesonbuild
 
 Then [install the Aravis library](https://aravisproject.github.io/aravis/building.html)) (version >= 0.8). 
 
-Then download this project and in the main directory type 
+Then download this project and in the main directory type
 
     cmake .
     make
@@ -28,6 +28,7 @@ Then download this project and in the main directory type
 
 Use option `--help` to know about the available options.
 
+Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
 
 ## About the code
 
