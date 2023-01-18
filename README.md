@@ -30,6 +30,7 @@ Use option `--help` to know about the available options.
 
 Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
 
+
 ## I case of missing frames
 
 ### Check if the problem comes from the connection to the camera
@@ -42,7 +43,8 @@ Note: If your version of cmake is too old, you can use pip to update it. If it d
 * Nice the program: `sudo nice -5 limrendir`
 * Use higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
 
-See also the advices (here)[https://aravisproject.github.io/aravis/ethernet.html](https://aravisproject.github.io/aravis/ethernet.html]
+See also the advices [here](https://aravisproject.github.io/aravis/ethernet.html).
+
 
 ## About the code
 
