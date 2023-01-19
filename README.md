@@ -3,8 +3,8 @@
 
 ## What is it ?
 
-Limrendir allows to view and save a video stream from a Genicam compatible camera. 
-It is a mashup between Aravis Viewer from the [Aravis project](https://aravisproject.github.io/aravis/), which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
+Limrendir allows to view and save a video stream from a Genicam compatible camera using the [Aravis library](https://aravisproject.github.io/aravis/). 
+It is a mashup between Aravis Viewer, which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
 
 
 ## How to install
