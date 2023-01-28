@@ -31,17 +31,25 @@ Use option `--help` to know about the available options.
 Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
 
 
-## I case of missing frames
+## Troubleshooting missing frames
 
-### Check if the problem comes from the connection to the camera
-* Chek that the camera is properly connected to your computer with an appropriate cable (for example, a category 6 Ethernet cable).
-* Check that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (preferrably 9000).
+During recording there can be dropped frames, i.e. frames that were not saved for one reason or another and that are missing in the video. These are especially frequent when having a high data rate (around and above 100 MB/s), a slow computer and/or several programs running in parallel. Limrendir should indicate that a frame was dropped by displaying "(X)" in a warning message. If you are experiencing dropped frames, you may try the following:
 
-### Check if the problem comes from the permissions given to limrendir
+### Check the camera-computer connection
+* Ensure that the camera is properly connected to your computer with an appropriate cable (for example, a category 6 Ethernet cable).
+* Verify that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (preferrably 9000).
+
+### Upgrade the permissions given to limrendir
 * Run limrendir as administrator (using `sudo`), which will allow to make the Aravis thread relatime.
 * Use packet sockets: `sudo setcap cap_net_raw+ep limrendir`
-* Nice the program: `sudo nice -5 limrendir`
-* Use higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
+* Nice the program: `sudo nice -5 ./limrendir`
+
+### Use higher timeouts
+* If the dropped frames comes from timeouts being reached (usually indicated by the ARV_BUFFER_STATUS_TIMEOUT buffer state), try using higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
+
+### Limit other usages of CPU resources
+ * If your computer is a 2000's toaster with less than 2 GB of RAM, try buying another one
+ * Limitate usage of CPU-heavy and RAM-guzzling applications such as Chrome
 
 See also the advices [here](https://aravisproject.github.io/aravis/ethernet.html).
 
@@ -54,7 +62,9 @@ A consequent part of the code is directly burrowed or adapted from Aravis Viewer
 * Smoother control of the acquisition and field of view parameters with key bindings routines inspired by gevCapture and
 * Recording capabilities, with different formats supported.
 
-There is a `GObject error` when launching the software. I don't know why. It doesn't seem to inhibit anything so I didn't search too hard. Any patch welcome :)
+I am not a professional software developer so the code quality might not be perfect. But hey, it works !
+
+Also there is a `GObject error` when launching the software. I don't know why. It doesn't seem to inhibit anything so I didn't search too hard. Any patch welcome :)
 
 
 ## Licence
