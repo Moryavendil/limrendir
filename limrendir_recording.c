@@ -227,6 +227,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer) {
     log_debug("Asking for a name choice, default is %s.", filename);
 
     GtkFileFilter *filter;
+    GtkFileFilter *filter_gcv;
     GtkFileFilter *filter_all;
     GtkWidget *dialog;
     char *path;
@@ -243,8 +244,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer) {
 
 //        g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS) // To use a special directory
     log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
-    path = g_build_filename(".", filename, NULL);
-//    gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
+    path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), filename, NULL);
+    gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
 
     const gchar *any_filter_name = "Supported video formats";
@@ -252,11 +253,11 @@ RecordingType confirm_dataset_name(LrdViewer *viewer) {
     gtk_file_filter_set_name(filter_all, any_filter_name);
 
     const gchar *raw_filter_name = "GevCapture style video (*.raw)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, raw_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.raw");
+    filter_gcv = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter_gcv, raw_filter_name);
+    gtk_file_filter_add_pattern(filter_gcv, "*.raw");
     gtk_file_filter_add_pattern(filter_all, "*.raw");
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
 
     const gchar *flv_filter_name = "FLV video (H264 encoding) (*.flv)";
     filter = gtk_file_filter_new();
@@ -287,7 +288,9 @@ RecordingType confirm_dataset_name(LrdViewer *viewer) {
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
-    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_all);
+
+    // The default filter
+    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
 
     g_free(path);
     g_free(filename);

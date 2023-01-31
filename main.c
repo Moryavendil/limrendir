@@ -163,7 +163,7 @@ static const GOptionEntry limrendir_option_entries[] =
                 },
                 {
                         "log-level",                'd',  0, G_OPTION_ARG_INT,
-                        &lrd_option_log_level, "Logging level", "0-4"
+                        &lrd_option_log_level, "Logging level", "0-4 (error, warn, info, debug, trace)"
                 },
                 {
                         "fake-camera",                '\0',  0, G_OPTION_ARG_NONE,
