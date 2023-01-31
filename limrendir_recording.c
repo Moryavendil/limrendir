@@ -201,7 +201,7 @@ char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
     return filename;
 }
 
-RecordingType confirm_dataset_name(LrdViewer *viewer) {
+RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *filename;
     if (viewer->dataset_name == NULL) {
         log_debug("No name specified, we need to set one.", viewer->dataset_name);
@@ -400,7 +400,8 @@ gboolean is_buffer_successful(ArvBuffer *buffer) {
             buffer_status_message = "Unrepertoried buffer status";
             break;
     }
-    log_warning("(X) Buffer unsuccessful: %s.", buffer_status_message);
+    fprintf(stderr, "(X) Buffer unsuccessful: %s.\n", buffer_status_message);
+//    log_warning("(X) Buffer unsuccessful: %s.", buffer_status_message);
 
     return FALSE;
 }
