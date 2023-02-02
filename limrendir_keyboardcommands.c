@@ -254,6 +254,8 @@ void crop_to_roi(LrdViewer *viewer) {
     camera_region_cb(NULL, viewer);
 
     select_mode (viewer, TRN_VIEWER_MODE_VIDEO);
+
+    apply_max_frame_rate_if_wanted (NULL, viewer);
 }
 
 void see_whole_field_of_view(LrdViewer *viewer) {
@@ -435,7 +437,7 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
             case GDK_KEY_b:
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)));
-                apply_max_frame_rate_if_wanted(NULL, viewer);
+//                apply_max_frame_rate_if_wanted(NULL, viewer); // redondant
                 break;
 
             case GDK_KEY_a:
