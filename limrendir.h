@@ -345,7 +345,7 @@ void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer);
 
 gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdViewer *viewer);
 
-void max_frame_rate_cb (GtkButton *button, LrdViewer *viewer);
+void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer);
 
 
 // Mathematics routines for the sliders

@@ -18,7 +18,7 @@ void help(LrdViewer *viewer) {
         printf("%s*** Camera Control ***%s                                                      \n", tcMAG, tcNRM);
         printf("+/- ................ Change exposure time (1 us)                                \n");
         printf("Pg Up/Pg Down ...... Change exposure time (100 us)                              \n");
-        printf("b .................. Set the frame rate to the maximum available value          \n");
+        printf("b .................. Toggle use the maximum available frame rate                \n");
         printf("n .................. Set the exposure to have a maximum contrast (experimental) \n");
 
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
@@ -56,7 +56,7 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_2), "\n"
                                                                   "Change exposure time (1 us)\n"
                                                                   "Change exposure time (100 us)\n"
-                                                                  "Maximize frame rate\n"
+                                                                  "Toggle maximum frame rate \n"
                                                                   "Optimize exposure (experimental)");
     // ROI
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
@@ -434,7 +434,8 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 best_exposure_search_nonblocking(viewer);
                 break;
             case GDK_KEY_b:
-                max_frame_rate_cb(NULL, viewer);
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)));
+                apply_max_frame_rate_if_wanted(NULL, viewer);
                 break;
 
             case GDK_KEY_a:

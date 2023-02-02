@@ -467,7 +467,7 @@ activate (GApplication *application)
 
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
-    g_signal_connect (viewer->max_frame_rate_button, "clicked", G_CALLBACK (max_frame_rate_cb), viewer);
+    g_signal_connect (viewer->max_frame_rate_button, "toggled", G_CALLBACK(apply_max_frame_rate_if_wanted), viewer);
 
 	if (!has_gtksink && !has_gtkglsink) {
 		g_signal_connect (viewer->video_frame, "realize", G_CALLBACK (video_frame_realize_cb), viewer);

@@ -9,6 +9,20 @@ Copyright (C)
   <!-- interface-license-type lgplv2 -->
   <object class="GtkSizeGroup"/>
   <object class="GtkSizeGroup"/>
+  <object class="GtkBox">
+    <property name="visible">True</property>
+    <property name="can-focus">False</property>
+    <property name="orientation">vertical</property>
+    <child>
+      <placeholder/>
+    </child>
+    <child>
+      <placeholder/>
+    </child>
+    <child>
+      <placeholder/>
+    </child>
+  </object>
   <object class="GtkListStore" id="camera_liststore">
     <columns>
       <!-- column-name id -->
@@ -238,18 +252,6 @@ Copyright (C)
           </packing>
         </child>
         <child>
-          <object class="GtkButton" id="max_frame_rate_button">
-            <property name="label" translatable="yes">Set to max</property>
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="receives-default">True</property>
-          </object>
-          <packing>
-            <property name="left-attach">4</property>
-            <property name="top-attach">1</property>
-          </packing>
-        </child>
-        <child>
           <object class="GtkLabel" id="gain_units_label">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
@@ -435,6 +437,48 @@ Copyright (C)
             <property name="top-attach">7</property>
             <property name="width">2</property>
             <property name="height">2</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkToggleButton" id="max_frame_rate_button">
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="receives-default">True</property>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="spacing">5</property>
+                <child>
+                  <object class="GtkImage">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="icon-name">caps-lock-symbolic</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="label" translatable="yes">Use maximum available</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+            </child>
+          </object>
+          <packing>
+            <property name="left-attach">4</property>
+            <property name="top-attach">1</property>
           </packing>
         </child>
         <child>

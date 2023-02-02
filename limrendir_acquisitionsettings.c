@@ -15,6 +15,8 @@
 // Set all the widgets
 void set_camera_control_widgets(LrdViewer *viewer)
 {
+    static gboolean initialization = TRUE;
+
     g_autofree char *string = NULL;
     gboolean is_frame_rate_available;
     double gain_min, gain_max;
@@ -102,6 +104,9 @@ void set_camera_control_widgets(LrdViewer *viewer)
     g_signal_handler_unblock (viewer->auto_black_level_toggle, viewer->auto_black_level_clicked);
     g_signal_handler_unblock (viewer->auto_exposure_toggle, viewer->auto_exposure_clicked);
 
+    apply_max_frame_rate_if_wanted (NULL, viewer);
+
+    // BURST
     g_signal_handler_block (viewer->burst_nframes_radiobutton, viewer->burst_control_changed);
     g_signal_handler_block (viewer->burst_nframes_spinBox, viewer->burst_nframes_changed);
     g_signal_handler_block (viewer->burst_duration_spinBox, viewer->burst_duration_changed);
@@ -109,15 +114,19 @@ void set_camera_control_widgets(LrdViewer *viewer)
     gtk_spin_button_set_range (GTK_SPIN_BUTTON (viewer->burst_nframes_spinBox), 1, 10000000);
     gtk_spin_button_set_increments (GTK_SPIN_BUTTON (viewer->burst_nframes_spinBox), 1, 100);
     gtk_spin_button_set_snap_to_ticks (GTK_SPIN_BUTTON (viewer->burst_nframes_spinBox), TRUE);
-    gtk_spin_button_set_value (GTK_SPIN_BUTTON (viewer->burst_nframes_spinBox), 100);
 
     gtk_spin_button_set_range (GTK_SPIN_BUTTON (viewer->burst_duration_spinBox), 0.000001, 3600);
     gtk_spin_button_set_increments (GTK_SPIN_BUTTON (viewer->burst_duration_spinBox), 1, 10);
     gtk_spin_button_set_snap_to_ticks (GTK_SPIN_BUTTON (viewer->burst_duration_spinBox), FALSE);
-    gtk_spin_button_set_value (GTK_SPIN_BUTTON (viewer->burst_duration_spinBox), 10);
 
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->burst_nframes_radiobutton), TRUE);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton), TRUE);
+    if (initialization) {
+        // Default value for burst mode
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON (viewer->burst_nframes_spinBox), 100);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON (viewer->burst_duration_spinBox), 10);
+
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (viewer->burst_nframes_radiobutton), TRUE);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton), TRUE);
+    }
 
     g_signal_handler_unblock (viewer->burst_nframes_radiobutton, viewer->burst_control_changed);
     g_signal_handler_unblock (viewer->burst_nframes_spinBox, viewer->burst_nframes_changed);
@@ -125,28 +134,35 @@ void set_camera_control_widgets(LrdViewer *viewer)
 
     burst_control_toggled (NULL, viewer);
     record_mode_toggled (NULL, viewer);
+
+    initialization = FALSE;
 }
 
 // Frame rate routines
 
-void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus)
-{
+void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus) {
     char *text;
 
-    text = (char *) gtk_entry_get_text (entry);
+    text = (char *) gtk_entry_get_text(entry);
 
-    arv_camera_set_frame_rate (viewer->camera, g_strtod (text, NULL), NULL);
+    arv_camera_set_frame_rate(viewer->camera, g_strtod(text, NULL), NULL);
 
-    double new_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    text = g_strdup_printf ("%g", new_frame_rate);
-    gtk_entry_set_text (GTK_ENTRY(viewer->frame_rate_entry), text);
+    double new_frame_rate = arv_camera_get_frame_rate(viewer->camera, NULL);
+    text = g_strdup_printf("%g", new_frame_rate);
+    gtk_entry_set_text(GTK_ENTRY(viewer->frame_rate_entry), text);
 
     if (grab_focus)
-        gtk_widget_grab_focus (GTK_WIDGET(entry));
+        gtk_widget_grab_focus(GTK_WIDGET(entry));
 
-    g_free (text);
+    g_free(text);
 
-    burst_harmonize_nframes_and_duration (NULL, viewer);
+    burst_harmonize_nframes_and_duration(NULL, viewer);
+
+    double max_frame_rate;
+    arv_camera_get_frame_rate_bounds(viewer->camera, NULL, &max_frame_rate, NULL);
+    if (max_frame_rate != new_frame_rate) {
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), FALSE);
+    }
 }
 
 void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer)
@@ -161,18 +177,20 @@ gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdVi
     return FALSE;
 }
 
-void max_frame_rate_cb (GtkButton *button, LrdViewer *viewer) {
-    double max_frame_rate;
-    arv_camera_get_frame_rate_bounds (viewer->camera, NULL, &max_frame_rate, NULL);
+void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer) {
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button))) {
+        double max_frame_rate;
+        arv_camera_get_frame_rate_bounds(viewer->camera, NULL, &max_frame_rate, NULL);
 
-    arv_camera_set_frame_rate (viewer->camera, max_frame_rate, NULL);
+        arv_camera_set_frame_rate(viewer->camera, max_frame_rate, NULL);
 
-    double actual_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    char *text = g_strdup_printf ("%g", actual_frame_rate);
-    gtk_entry_set_text (GTK_ENTRY(viewer->frame_rate_entry), text);
-    log_info("New frame rate set (maximum possible): %g Hz", actual_frame_rate);
+        double actual_frame_rate = arv_camera_get_frame_rate(viewer->camera, NULL);
+        char *text = g_strdup_printf("%g", actual_frame_rate);
+        gtk_entry_set_text(GTK_ENTRY(viewer->frame_rate_entry), text);
+        log_info("New frame rate set (maximum possible): %g Hz", actual_frame_rate);
 
-    burst_harmonize_nframes_and_duration (NULL, viewer);
+        burst_harmonize_nframes_and_duration(NULL, viewer);
+    }
 }
 
 
