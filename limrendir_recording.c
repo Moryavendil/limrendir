@@ -249,11 +249,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
         lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
     } else {
-        if (g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP) != NULL) {
-            lrd_videos_path = g_build_filename(g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP), "Limrendir-videos", NULL);
-        } else {
-            lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
-        }
+        lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
     }
     mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
 
