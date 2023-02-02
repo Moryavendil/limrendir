@@ -490,7 +490,7 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
     // measuring frames
     log_trace("\tTaking frames");
     i_frame = 0;
-    while (i_frame < n_frames_to_skip) {
+    while (i_frame < n_frames) {
         // take a buffer
         buffer = arv_stream_pop_buffer(stream);
 
@@ -508,7 +508,7 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
                     max_pixel_value = image_data[i];
             }
             i_frame++;
-            log_trace("\t\tTaken %d frame(s) out of %d", i_frame, n_frames_to_skip);
+            log_trace("\t\tTaken %d frame(s) out of %d", i_frame, n_frames);
         }
         arv_stream_push_buffer(stream, buffer);
     }
@@ -530,7 +530,6 @@ gboolean best_exposure_search_next_step(void *data)
     uint8_t max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
 
     // Display
-    log_trace("Display 1 buffer");
     ArvBuffer *buffer = arv_stream_pop_buffer(viewer->stream);
     // Check if the buffer was successful
     if (arv_buffer_get_status(buffer) == ARV_BUFFER_STATUS_SUCCESS) {
