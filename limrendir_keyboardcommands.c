@@ -396,7 +396,7 @@ void toggle_maximize(LrdViewer *viewer) {
 // GENERAL CONTROL
 gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
 {
-    log_trace("The keysim name `%s' was pressed", gdk_keyval_name(event->keyval));
+    log_trace("The keysim named `%s' was pressed", gdk_keyval_name(event->keyval));
 
     LrdViewer *viewer = data;
 
