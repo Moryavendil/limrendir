@@ -127,7 +127,6 @@ void set_camera_control_widgets(LrdViewer *viewer)
     record_mode_toggled (NULL, viewer);
 }
 
-
 // Frame rate routines
 
 void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus)

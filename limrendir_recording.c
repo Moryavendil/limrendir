@@ -26,6 +26,8 @@
 // declare files
 // Number of buffers in the buffer queue (more is better)
 unsigned n_buffers = 100;
+// Memory allowed for buffers, in bytes (approximately)
+size_t mem_for_buffers = 200 * (1 << 20);
 // Number of FPS to display while recording (less is better)
 gint display_fps_recording = 10;
 // Time since last update
@@ -1212,11 +1214,11 @@ static gboolean bourrin_recording(void *data)
     for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
 
         arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
-        if (n_output_buffers > 1) {
+        if ( (log_level >= LOG_INFO) && (n_output_buffers > 1)) {
             fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
-            if (n_output_buffers > n_buffers/2) {
-                fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%d)\n", n_output_buffers, n_buffers);
-            }
+        }
+        if (n_output_buffers > n_buffers/2) {
+            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", ((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
         }
 
         record_this_buffer = TRUE;
@@ -1309,6 +1311,24 @@ gboolean start_recording (LrdViewer *viewer) {
 
     // Check that we can record
     viewer->record_type = confirm_dataset_name(viewer);
+
+    // Change the buffer size
+    log_debug("Size allowed for buffers: %zu bytes (%zu kB)", mem_for_buffers, mem_for_buffers / (1 << 10));
+
+    size_t buffer_size = 0;
+    if (viewer->show_roi) {
+        buffer_size = viewer->roi_w * viewer->roi_h;
+    } else {
+        int width, height;
+        arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+        buffer_size = width * height;
+    }
+    log_debug("Size of one buffer: %zu bytes (%zu kB)", buffer_size, buffer_size / (1 << 10));
+    n_buffers = mem_for_buffers / buffer_size;
+    if (n_buffers < 10) {
+        n_buffers = 10;
+    }
+    log_debug("Number of buffers: %u", n_buffers);
 
     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton))) {
         // user-controlled mode
