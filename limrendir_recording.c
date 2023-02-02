@@ -245,12 +245,23 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
 
     // Si le dossier existe deja, le mkdir echoue et osef.
-    char* lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
+    char* lrd_videos_path = NULL;
+    if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
+        lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
+    } else {
+        if (g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP) != NULL) {
+            lrd_videos_path = g_build_filename(g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP), "Limrendir-videos", NULL);
+        } else {
+            lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
+        }
+    }
     mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
 
     log_debug("The saving dir is %s", lrd_videos_path);
 
     path = g_build_filename(lrd_videos_path, filename, NULL);
+    g_free(lrd_videos_path);
+
     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
 
