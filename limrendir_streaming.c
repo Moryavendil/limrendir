@@ -12,6 +12,31 @@
 #include <gdk/gdkwin32.h>  // for GDK_WINDOW_HWND
 #endif
 
+
+// These are straight-up copy-pasted form gevCapture
+/* return time from timespec-structure in milliseconds */
+long clock_millis(struct timespec t) {
+    return ((long) t.tv_sec) * 1000 + t.tv_nsec / 1000000;
+}
+
+/* time difference in milliseconds */
+long clock_diff_millis(struct timespec t1, struct timespec t2) {
+    long d;
+    d = ((long) t1.tv_sec - (long) t2.tv_sec) * 1000
+        + (t1.tv_nsec - t2.tv_nsec) / 1000000;
+    return d;
+}
+
+
+// RECORDING THINGS
+// declare files
+// Number of buffers in the buffer queue (more is better)
+unsigned n_buffers_streaming = 10;
+// Number of FPS to display while recording (less is better)
+gint display_fps_streaming = 50;
+// Time since last update
+struct timespec clock_last_snapshot_streaming, clock_now_streaming;
+
 void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer)
 {
 #ifdef GDK_WINDOWING_X11
@@ -230,20 +255,26 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     if (arv_buffer == NULL)
         return;
 
-    arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
+    // Get the time of the grab
+    clock_gettime(CLOCK_MONOTONIC, &clock_now_streaming);
+
+//    arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
 //	arv_debug_viewer ("pop buffer (%d,%d)", n_input_buffers, n_output_buffers);
 
     if (arv_buffer_get_status(arv_buffer) != ARV_BUFFER_STATUS_SUCCESS) {
         arv_stream_push_buffer (stream, arv_buffer);
     } else {
-        size_t size;
 
-        arv_buffer_get_data (arv_buffer, &size);
 
-        g_clear_object( &viewer->last_buffer );
-        viewer->last_buffer = g_object_ref( arv_buffer );
-
-        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (arv_buffer, stream, viewer));
+        // Push back the buffer (in the right queue)
+        if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000) {
+            clock_last_snapshot_streaming = clock_now_streaming;
+            g_clear_object(&viewer->last_buffer);
+            viewer->last_buffer = g_object_ref(arv_buffer);
+            gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(arv_buffer, stream, viewer));
+        } else {
+            arv_stream_push_buffer(stream, arv_buffer);
+        }
     }
 }
 
@@ -313,7 +344,7 @@ gboolean start_video (LrdViewer *viewer)
 
     arv_stream_set_emit_signals (viewer->stream, TRUE);
     payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (i = 0; i < 10; i++)
+    for (i = 0; i < n_buffers_streaming; i++)
         arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
 
     set_camera_control_widgets(viewer);
@@ -419,6 +450,9 @@ gboolean start_video (LrdViewer *viewer)
     viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
 
     viewer->new_buffer_available_video = g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (new_buffer_cb), viewer);
+
+    // The time for the video snapshot update
+    clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_streaming);
 
     return TRUE;
 }

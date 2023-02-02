@@ -8,6 +8,7 @@ Copyright (C)
   <requires lib="gtk+" version="3.16"/>
   <!-- interface-license-type lgplv2 -->
   <object class="GtkSizeGroup"/>
+  <object class="GtkSizeGroup"/>
   <object class="GtkListStore" id="camera_liststore">
     <columns>
       <!-- column-name id -->
@@ -28,18 +29,11 @@ Copyright (C)
       <column type="gchararray"/>
     </columns>
   </object>
-  <object class="GtkSizeGroup">
-    <widgets>
-      <widget name="frame_rate_entry"/>
-      <widget name="exposure_spinbutton"/>
-      <widget name="gain_spinbutton"/>
-    </widgets>
-  </object>
   <object class="GtkPopover" id="acquisition_popover">
     <property name="can-focus">False</property>
     <property name="relative-to">acquisition_button</property>
     <child>
-      <!-- n-columns=5 n-rows=4 -->
+      <!-- n-columns=5 n-rows=9 -->
       <object class="GtkGrid" id="grid2">
         <property name="visible">True</property>
         <property name="can-focus">False</property>
@@ -51,45 +45,19 @@ Copyright (C)
         <property name="row-spacing">6</property>
         <property name="column-spacing">6</property>
         <child>
-          <object class="GtkLabel" id="frame_rate_label">
+          <object class="GtkLabel" id="black_level_label">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            <property name="label" translatable="yes">Frame rate:</property>
+            <property name="label" translatable="yes">Black level:</property>
             <property name="xalign">1</property>
           </object>
           <packing>
             <property name="left-attach">1</property>
-            <property name="top-attach">0</property>
+            <property name="top-attach">4</property>
           </packing>
         </child>
         <child>
-          <object class="GtkEntry" id="frame_rate_entry">
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="invisible-char">•</property>
-            <property name="width-chars">10</property>
-            <property name="primary-icon-activatable">False</property>
-            <property name="secondary-icon-activatable">False</property>
-          </object>
-          <packing>
-            <property name="left-attach">2</property>
-            <property name="top-attach">0</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkLabel" id="frame_rate_units_label">
-            <property name="visible">True</property>
-            <property name="can-focus">False</property>
-            <property name="label" translatable="yes">Hz</property>
-            <property name="xalign">0</property>
-          </object>
-          <packing>
-            <property name="left-attach">3</property>
-            <property name="top-attach">0</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkToggleButton" id="auto_exposure_togglebutton">
+          <object class="GtkToggleButton" id="auto_black_level_togglebutton">
             <property name="label" translatable="yes">Auto</property>
             <property name="use-action-appearance">False</property>
             <property name="visible">True</property>
@@ -98,23 +66,24 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">0</property>
-            <property name="top-attach">1</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkLabel" id="exposure_label">
-            <property name="visible">True</property>
-            <property name="can-focus">False</property>
-            <property name="label" translatable="yes">Exposure:</property>
-            <property name="xalign">1</property>
-          </object>
-          <packing>
-            <property name="left-attach">1</property>
-            <property name="top-attach">1</property>
+            <property name="top-attach">4</property>
           </packing>
         </child>
         <child>
           <object class="GtkToggleButton" id="auto_gain_togglebutton">
+            <property name="label" translatable="yes">Auto</property>
+            <property name="use-action-appearance">False</property>
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="receives-default">True</property>
+          </object>
+          <packing>
+            <property name="left-attach">0</property>
+            <property name="top-attach">3</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkToggleButton" id="auto_exposure_togglebutton">
             <property name="label" translatable="yes">Auto</property>
             <property name="use-action-appearance">False</property>
             <property name="visible">True</property>
@@ -135,84 +104,18 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">1</property>
-            <property name="top-attach">2</property>
+            <property name="top-attach">3</property>
           </packing>
         </child>
         <child>
-          <object class="GtkSpinButton" id="exposure_spinbutton">
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="invisible-char">•</property>
-            <property name="width-chars">11</property>
-            <property name="primary-icon-activatable">False</property>
-            <property name="secondary-icon-activatable">False</property>
-            <property name="numeric">True</property>
-          </object>
-          <packing>
-            <property name="left-attach">2</property>
-            <property name="top-attach">1</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkSpinButton" id="gain_spinbutton">
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="invisible-char">•</property>
-            <property name="width-chars">11</property>
-            <property name="primary-icon-activatable">False</property>
-            <property name="secondary-icon-activatable">False</property>
-            <property name="input-purpose">digits</property>
-            <property name="digits">2</property>
-            <property name="numeric">True</property>
-          </object>
-          <packing>
-            <property name="left-attach">2</property>
-            <property name="top-attach">2</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkLabel" id="exposure_units_label">
+          <object class="GtkLabel" id="exposure_label">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            <property name="label" translatable="yes">µs</property>
-            <property name="xalign">0</property>
+            <property name="label" translatable="yes">Exposure:</property>
+            <property name="xalign">1</property>
           </object>
           <packing>
-            <property name="left-attach">3</property>
-            <property name="top-attach">1</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkHScale" id="exposure_hscale">
-            <property name="width-request">200</property>
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="draw-value">False</property>
-          </object>
-          <packing>
-            <property name="left-attach">4</property>
-            <property name="top-attach">1</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkHScale" id="gain_hscale">
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="draw-value">False</property>
-          </object>
-          <packing>
-            <property name="left-attach">4</property>
-            <property name="top-attach">2</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkLabel" id="gain_units_label">
-            <property name="visible">True</property>
-            <property name="can-focus">False</property>
-            <property name="label" translatable="yes">dB</property>
-          </object>
-          <packing>
-            <property name="left-attach">3</property>
+            <property name="left-attach">1</property>
             <property name="top-attach">2</property>
           </packing>
         </child>
@@ -222,32 +125,19 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">0</property>
-            <property name="top-attach">0</property>
+            <property name="top-attach">1</property>
           </packing>
         </child>
         <child>
-          <object class="GtkToggleButton" id="auto_black_level_togglebutton">
-            <property name="label" translatable="yes">Auto</property>
-            <property name="use-action-appearance">False</property>
-            <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="receives-default">True</property>
-          </object>
-          <packing>
-            <property name="left-attach">0</property>
-            <property name="top-attach">3</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkLabel" id="black_level_label">
+          <object class="GtkLabel" id="frame_rate_label">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            <property name="label" translatable="yes">Black level:</property>
+            <property name="label" translatable="yes">Frame rate:</property>
             <property name="xalign">1</property>
           </object>
           <packing>
             <property name="left-attach">1</property>
-            <property name="top-attach">3</property>
+            <property name="top-attach">1</property>
           </packing>
         </child>
         <child>
@@ -264,7 +154,53 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">2</property>
+            <property name="top-attach">4</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkSpinButton" id="gain_spinbutton">
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="invisible-char">•</property>
+            <property name="width-chars">11</property>
+            <property name="primary-icon-activatable">False</property>
+            <property name="secondary-icon-activatable">False</property>
+            <property name="input-purpose">digits</property>
+            <property name="digits">2</property>
+            <property name="numeric">True</property>
+          </object>
+          <packing>
+            <property name="left-attach">2</property>
             <property name="top-attach">3</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkSpinButton" id="exposure_spinbutton">
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="invisible-char">•</property>
+            <property name="width-chars">11</property>
+            <property name="primary-icon-activatable">False</property>
+            <property name="secondary-icon-activatable">False</property>
+            <property name="numeric">True</property>
+          </object>
+          <packing>
+            <property name="left-attach">2</property>
+            <property name="top-attach">2</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="frame_rate_entry">
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="invisible-char">•</property>
+            <property name="width-chars">10</property>
+            <property name="primary-icon-activatable">False</property>
+            <property name="secondary-icon-activatable">False</property>
+          </object>
+          <packing>
+            <property name="left-attach">2</property>
+            <property name="top-attach">1</property>
           </packing>
         </child>
         <child>
@@ -275,7 +211,30 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">4</property>
+            <property name="top-attach">4</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkHScale" id="gain_hscale">
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="draw-value">False</property>
+          </object>
+          <packing>
+            <property name="left-attach">4</property>
             <property name="top-attach">3</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkHScale" id="exposure_hscale">
+            <property name="width-request">200</property>
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="draw-value">False</property>
+          </object>
+          <packing>
+            <property name="left-attach">4</property>
+            <property name="top-attach">2</property>
           </packing>
         </child>
         <child>
@@ -287,8 +246,217 @@ Copyright (C)
           </object>
           <packing>
             <property name="left-attach">4</property>
-            <property name="top-attach">0</property>
+            <property name="top-attach">1</property>
           </packing>
+        </child>
+        <child>
+          <object class="GtkLabel" id="gain_units_label">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">dB</property>
+          </object>
+          <packing>
+            <property name="left-attach">3</property>
+            <property name="top-attach">3</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel" id="exposure_units_label">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">µs</property>
+            <property name="xalign">0</property>
+          </object>
+          <packing>
+            <property name="left-attach">3</property>
+            <property name="top-attach">2</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel" id="frame_rate_units_label">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">Hz</property>
+            <property name="xalign">0</property>
+          </object>
+          <packing>
+            <property name="left-attach">3</property>
+            <property name="top-attach">1</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">Camera settings</property>
+          </object>
+          <packing>
+            <property name="left-attach">0</property>
+            <property name="top-attach">0</property>
+            <property name="width">5</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">Recording settings</property>
+          </object>
+          <packing>
+            <property name="left-attach">0</property>
+            <property name="top-attach">5</property>
+            <property name="width">5</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <property name="label" translatable="yes">Recording mode</property>
+          </object>
+          <packing>
+            <property name="left-attach">0</property>
+            <property name="top-attach">6</property>
+            <property name="width">2</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkRadioButton" id="recmode_usercontrolled_radiobutton">
+            <property name="label" translatable="yes">User-controlled</property>
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="receives-default">False</property>
+            <property name="tooltip-text" translatable="yes">Let the user control when the recording stops. This allows for real-time preview of the recorded video.</property>
+            <property name="active">True</property>
+            <property name="draw-indicator">True</property>
+            <property name="group">recmode_burst_radiobutton</property>
+          </object>
+          <packing>
+            <property name="left-attach">2</property>
+            <property name="top-attach">6</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkRadioButton" id="recmode_burst_radiobutton">
+            <property name="label" translatable="yes">Single burst</property>
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="receives-default">False</property>
+            <property name="tooltip-text" translatable="yes">Record for a set number of frames or for a set time. You won't be able to see the video preview.</property>
+            <property name="active">True</property>
+            <property name="draw-indicator">True</property>
+          </object>
+          <packing>
+            <property name="left-attach">2</property>
+            <property name="top-attach">7</property>
+          </packing>
+        </child>
+        <child>
+          <!-- n-columns=3 n-rows=2 -->
+          <object class="GtkGrid">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <child>
+              <object class="GtkRadioButton" id="burst_nframes_radiobutton">
+                <property name="label" translatable="yes">N frames</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="tooltip-text" translatable="yes">Set the number of frames recorded. The duration of the recording depends on the framerate.</property>
+                <property name="active">True</property>
+                <property name="draw-indicator">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkRadioButton" id="burst_duration_radiobutton">
+                <property name="label" translatable="yes">Duration</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="tooltip-text" translatable="yes">Set the duration of the recording. The number of frames recorded depends on the framerate.</property>
+                <property name="active">True</property>
+                <property name="draw-indicator">True</property>
+                <property name="group">burst_nframes_radiobutton</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="burst_nframes_spinBox">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="tooltip-text" translatable="yes">The number of frames recorded.</property>
+                <property name="input-purpose">digits</property>
+                <property name="snap-to-ticks">True</property>
+                <property name="numeric">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="burst_duration_spinBox">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="tooltip-text" translatable="yes">The duration of the recording.</property>
+                <property name="input-purpose">digits</property>
+                <property name="digits">6</property>
+                <property name="numeric">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes">s</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">1</property>
+              </packing>
+            </child>
+            <child>
+              <placeholder/>
+            </child>
+          </object>
+          <packing>
+            <property name="left-attach">3</property>
+            <property name="top-attach">7</property>
+            <property name="width">2</property>
+            <property name="height">2</property>
+          </packing>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+        <child>
+          <placeholder/>
         </child>
         <child>
           <placeholder/>
@@ -1126,7 +1294,7 @@ Copyright (C)
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
-            <property name="tooltip-text" translatable="yes">Acquisition settings</property>
+            <property name="tooltip-text" translatable="yes">Key bindings</property>
             <property name="popover">help_popover</property>
             <child>
               <object class="GtkImage">

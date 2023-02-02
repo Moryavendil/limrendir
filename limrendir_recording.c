@@ -7,29 +7,28 @@
 #include <logroutines.h>
 
 
-// These are straight-up copy-pasted form gevCapture
-/* return time from timespec-structure in milliseconds */
-long clock_millis(struct timespec t) {
-    return ((long) t.tv_sec) * 1000 + t.tv_nsec / 1000000;
-}
-
-/* time difference in milliseconds */
-long clock_diff_millis(struct timespec t1, struct timespec t2) {
-    long d;
-    d = ((long) t1.tv_sec - (long) t2.tv_sec) * 1000
-        + (t1.tv_nsec - t2.tv_nsec) / 1000000;
-    return d;
-}
-
+//// These are straight-up copy-pasted form gevCapture
+///* return time from timespec-structure in milliseconds */
+//long clock_millis(struct timespec t) {
+//    return ((long) t.tv_sec) * 1000 + t.tv_nsec / 1000000;
+//}
+//
+///* time difference in milliseconds */
+//long clock_diff_millis(struct timespec t1, struct timespec t2) {
+//    long d;
+//    d = ((long) t1.tv_sec - (long) t2.tv_sec) * 1000
+//        + (t1.tv_nsec - t2.tv_nsec) / 1000000;
+//    return d;
+//}
 
 // RECORDING THINGS
 // declare files
 // Number of buffers in the buffer queue (more is better)
 unsigned n_buffers = 100;
 // Number of FPS to display while recording (less is better)
-gint display_fps = 10;
+gint display_fps_recording = 10;
 // Time since last update
-struct timespec clock_last_snapshot, clock_now;
+struct timespec clock_last_snapshot_recording, clock_now_recording;
 
 // SAVE FILES MANAGEMENT
 typedef enum {
@@ -264,7 +263,9 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     gtk_file_filter_set_name(filter, flv_filter_name);
     gtk_file_filter_add_pattern(filter, "*.flv");
     gtk_file_filter_add_pattern(filter_all, "*.flv");
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    }
 
     const gchar *avi_filter_name = "AVI video (*.avi)";
 //    filter = gtk_file_filter_new();
@@ -424,6 +425,7 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
     }
 }
 
+
 // RECORDING LIKE GEVCAPTURE
 
 // The most important function here... This is the callback for the new buffer signal
@@ -467,7 +469,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         buffer = arv_stream_pop_buffer(stream);
 
         // Get the time of the grab
-        clock_gettime(CLOCK_MONOTONIC, &clock_now);
+        clock_gettime(CLOCK_MONOTONIC, &clock_now_recording);
 
         // Check that we did indeed grab something
         if (buffer == NULL) {
@@ -497,7 +499,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         fprintf(stampFile, "%d\t%ld\t%ld\n",
                 unwrapped_frame_id,                 // running frame number, guint32
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
-                clock_millis(clock_now));        // computer time (ms)
+                clock_millis(clock_now_recording));        // computer time (ms)
 
         // write image data
         image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
@@ -523,8 +525,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         }
 
         // Push back the buffer (in the right queue)
-        if (clock_diff_millis(clock_now, clock_last_snapshot) * display_fps > 1000) {
-            clock_last_snapshot = clock_now;
+        if (clock_diff_millis(clock_now_recording, clock_last_snapshot_recording) * display_fps_recording > 1000) {
+            clock_last_snapshot_recording = clock_now_recording;
             show_this_frame = TRUE;
         }
         if (show_this_frame) {
@@ -640,7 +642,7 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
-    clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot);
+    clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
 
     // Files writing
     open_files(viewer);
@@ -719,6 +721,7 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
 
     return TRUE;
 }
+
 
 // RECORDING WITH PURE GSTREAMER
 
@@ -1085,6 +1088,195 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     return TRUE;
 }
 
+// RECORDING LIKE A BOURRIN
+
+
+// sets up the arv stream we are gonna record from
+//static gboolean bourrin_recording(LrdViewer *viewer) {
+static gboolean bourrin_recording(void *data)
+{
+    LrdViewer *viewer = data;
+
+    log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
+    unsigned payload; // The size of the buffers
+
+    // The time for the video snapshot update
+    clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
+
+    // Files writing
+    open_files(viewer);
+
+    write_meta(viewer);
+
+    // Create the stream
+    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
+    if (!ARV_IS_STREAM (viewer->stream)) {
+        g_object_unref (viewer->camera);
+        viewer->camera = NULL;
+        return FALSE;
+    }
+
+    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
+    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
+    if (ARV_IS_GV_STREAM (viewer->stream)) {
+
+        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
+        if (viewer->auto_socket_buffer) {
+            g_object_set(viewer->stream,
+                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+                         "socket-buffer-size", 0,
+                         NULL);
+        } else {
+            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
+        }
+
+        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
+        if (!viewer->packet_resend) {
+            g_object_set (viewer->stream,
+                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+                          NULL);
+        }
+
+        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
+        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
+        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
+
+        g_object_set (viewer->stream,
+                      "initial-packet-timeout", initial_packet_timeout,
+                      "packet-timeout", packet_timeout,
+                      "frame-retention", frame_retention,
+                      NULL);
+
+
+        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
+                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
+        log_debug("Packet timeout: %u us %s", packet_timeout,
+                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
+        log_debug("Frame retention: %u us %s", frame_retention,
+                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
+    } else {
+        log_info("This Aravis stream is not a GigE Vision stream. Some properties could not be set.");
+    }
+
+    // Add buffers
+    payload = arv_camera_get_payload (viewer->camera, NULL);
+    for (unsigned i = 0; i < n_buffers; i++) {
+        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    }
+
+    arv_stream_set_emit_signals (viewer->stream, FALSE);
+
+    arv_camera_set_acquisition_mode (viewer->camera, ARV_ACQUISITION_MODE_CONTINUOUS, NULL);
+
+    arv_camera_start_acquisition (viewer->camera, NULL);
+
+    gint number_of_frames_to_record = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(viewer->burst_nframes_spinBox));
+
+    ArvBuffer *buffer;
+
+    guint32 frame_id;
+    // remember previous frame id to detect overflow
+    guint32 old_frame_id = 0;
+    // frame_id that does not wrap around (until guint32 itself overflows)
+    guint32 unwrapped_frame_id = 0;
+    // wrapping modulus
+    guint32 frame_id_modulus = 1 << 16;
+
+    uint8_t *image_data;
+    size_t size;
+
+    gint n_input_buffers, n_output_buffers;
+
+    gboolean record_this_buffer;
+
+    for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
+
+        arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
+        if (n_output_buffers > 1) {
+            fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
+            if (n_output_buffers > n_buffers/2) {
+                fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%d)\n", n_output_buffers, n_buffers);
+            }
+        }
+
+        record_this_buffer = TRUE;
+
+        buffer = arv_stream_pop_buffer(viewer->stream);
+
+        // Get the time of the grab
+        clock_gettime(CLOCK_MONOTONIC, &clock_now_recording);
+
+        // Check that we did indeed grab something
+        if (buffer == NULL) {
+            fprintf(stderr, "O\n");
+            record_this_buffer = FALSE;
+        }
+
+        // Check if the buffer was successful
+        if (!is_buffer_successful(buffer)) {
+            record_this_buffer = FALSE;
+        }
+
+        if (record_this_buffer) {
+
+            // unwrap running frame number
+            frame_id = arv_buffer_get_frame_id(buffer);
+            if (unwrapped_frame_id == 0) {
+                old_frame_id = frame_id - 1;
+            }
+            if (frame_id < old_frame_id)
+                unwrapped_frame_id += (frame_id + frame_id_modulus) - old_frame_id - 1; // ATTENTION AU -1 cf doc
+            else
+                unwrapped_frame_id += frame_id - old_frame_id;
+            old_frame_id = frame_id;
+
+            // write stamps data
+            fprintf(stampFile, "%d\t%ld\t%ld\n",
+                    unwrapped_frame_id,                          // running frame number, guint32
+                    arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
+                    clock_millis(clock_now_recording));       // computer time (ms)
+
+            // write image data
+            image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
+            if (viewer->show_roi) {
+                int width, height;
+                arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
+                if (size == viewer->roi_w * viewer->roi_h) {
+                    // The roi is useless
+                    fwrite(image_data, 1, size, imageFile);
+                } else if (width == viewer->roi_w) {
+                    // The roi is used to constrain only in y
+                    size_t offset = viewer->roi_y * width;
+                    fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
+                } else {
+                    // general case
+                    for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
+                        size_t offset = i_line * width + viewer->roi_x;
+                        fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
+                    }
+                }
+            } else {
+                fwrite(image_data, 1, size, imageFile);
+            }
+        }
+
+        // Push back the buffer
+        arv_stream_push_buffer(viewer->stream, buffer);
+    }
+
+    stop_recording (viewer);
+    gtk_widget_set_sensitive(viewer->help_button, TRUE);
+
+    return FALSE;
+}
+
+// START AND STOP RECORDING
 void abort_recording(LrdViewer *viewer) {
     g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
@@ -1104,54 +1296,84 @@ gboolean start_recording (LrdViewer *viewer) {
     // Check that we can record
     viewer->record_type = confirm_dataset_name(viewer);
 
-    gboolean successful_launch = TRUE;
-    switch (viewer->record_type) {
-        case RECORDTYPE_NONE:
-            abort_recording(viewer);
-            return FALSE;
-            break;
-        case RECORDTYPE_GEVCAPTURE:
-            stop_video (viewer);
-            successful_launch *= setup_video_display_for_gevcapture_style_recording(viewer);
-            if (successful_launch) {
-                successful_launch *= setup_stream_for_gevcapture_style_recording(viewer);
-            }
-            break;
-        case RECORDTYPE_FLV:
-            stop_video (viewer);
-            successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
-            if (successful_launch) {
-                successful_launch *= setup_stream_for_gstreamer_recording(viewer);
-            }
-            break;
-        default:
-            log_info("Unsupported video format");
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton))) {
+        // user-controlled mode
+
+        gboolean successful_launch = TRUE;
+        switch (viewer->record_type) {
+            case RECORDTYPE_NONE:
+                abort_recording(viewer);
+                return FALSE;
+                break;
+            case RECORDTYPE_GEVCAPTURE:
+                stop_video(viewer);
+                successful_launch *= setup_video_display_for_gevcapture_style_recording(viewer);
+                if (successful_launch) {
+                    successful_launch *= setup_stream_for_gevcapture_style_recording(viewer);
+                }
+                break;
+            case RECORDTYPE_FLV:
+                stop_video(viewer);
+                successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
+                if (successful_launch) {
+                    successful_launch *= setup_stream_for_gstreamer_recording(viewer);
+                }
+                break;
+            default:
+                log_info("Unsupported video format");
+
+                abort_recording(viewer);
+                return FALSE;
+                break;
+        }
+
+        if (!successful_launch) {
+            log_debug("Tried to launch a recording but that was unsuccessful.");
 
             abort_recording(viewer);
+            start_video(viewer); // We need to restart t6he video because if we are here we stopped it
             return FALSE;
-            break;
+        }
+        char *dataset_core_name = strrchr(viewer->dataset_name, '/');
+        if (dataset_core_name == NULL)
+            dataset_core_name = viewer->dataset_name;
+        log_info("Beginning to record a video named '%s'", dataset_core_name);
+
+        gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
+        gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+        gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
+        gtk_widget_set_sensitive(viewer->help_description_2, FALSE);
+        gtk_widget_set_sensitive(viewer->help_key_3, FALSE);
+        gtk_widget_set_sensitive(viewer->help_description_3, FALSE);
+        gtk_widget_set_sensitive(viewer->back_button, FALSE);
+        gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
+        gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
+        gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
+
+        return successful_launch;
+    } else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+        // burst mode
+        stop_video(viewer);
+
+        char *dataset_core_name = strrchr(viewer->dataset_name, '/');
+        if (dataset_core_name == NULL)
+            dataset_core_name = viewer->dataset_name;
+        log_info("Beginning to record a video named '%s'", dataset_core_name);
+
+        gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
+        gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+        gtk_widget_set_sensitive(viewer->record_button, FALSE);
+        gtk_widget_set_sensitive(viewer->back_button, FALSE);
+        gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
+        gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
+        gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
+
+        gtk_widget_set_sensitive(viewer->help_button, FALSE);
+
+
+        g_timeout_add (500, bourrin_recording, viewer);
+
     }
-
-    if (!successful_launch) {
-        log_debug("Tried to launch a recording but that was unsuccessful.");
-
-        abort_recording(viewer);
-        start_video(viewer); // We need to restart t6he video because if we are here we stopped it
-        return FALSE;
-    }
-    char* dataset_core_name = strrchr(viewer->dataset_name, '/');
-    if (dataset_core_name == NULL)
-        dataset_core_name = viewer->dataset_name;
-    log_info("Beginning to record a video named '%s'", dataset_core_name);
-
-    gtk_widget_set_sensitive (viewer->acquisition_button, FALSE);
-    gtk_widget_set_sensitive (viewer->snapshot_button, FALSE);
-    gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
-    gtk_widget_set_sensitive(viewer->help_description_2, FALSE);
-    gtk_widget_set_sensitive(viewer->help_key_3, FALSE);
-    gtk_widget_set_sensitive(viewer->help_description_3, FALSE);
-
-    return successful_launch;
 }
 
 gboolean stop_recording (LrdViewer *viewer) {
@@ -1179,6 +1401,10 @@ gboolean stop_recording (LrdViewer *viewer) {
     gtk_widget_set_sensitive(viewer->help_description_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_3, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_3, TRUE);
+    gtk_widget_set_sensitive(viewer->back_button, TRUE);
+    gtk_widget_set_sensitive(viewer->rotate_cw_button, TRUE);
+    gtk_widget_set_sensitive(viewer->flip_vertical_toggle, TRUE);
+    gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, TRUE);
     if (is_record_button_active(viewer)) {
         g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
@@ -1198,7 +1424,9 @@ gboolean stop_recording (LrdViewer *viewer) {
     viewer->record_type = RECORDTYPE_NONE;
 }
 
-// RECORDING STATE
+
+
+// MANAGE RECORDING STATE
 gboolean is_record_button_active(LrdViewer *viewer) {
     return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(viewer->record_button));
 }

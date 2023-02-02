@@ -401,6 +401,14 @@ activate (GApplication *application)
 	viewer->flip_vertical_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_vertical_togglebutton"));
 	viewer->flip_horizontal_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_horizontal_togglebutton"));
     viewer->acquisition_button = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_button"));
+    // Record mode
+    viewer->recmode_usercontrolled_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_usercontrolled_radiobutton"));
+    viewer->recmode_burst_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_burst_radiobutton"));
+    viewer->burst_nframes_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_radiobutton"));
+    viewer->burst_duration_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_radiobutton"));
+    viewer->burst_nframes_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_spinBox"));
+    viewer->burst_duration_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_spinBox"));
+
     // Help popover
     viewer->help_button = GTK_WIDGET (gtk_builder_get_object (builder, "help_button"));
     viewer->help_key_1 = GTK_WIDGET (gtk_builder_get_object (builder, "help_key_1"));
@@ -448,6 +456,14 @@ activate (GApplication *application)
 	g_signal_connect (viewer->flip_vertical_toggle, "clicked", G_CALLBACK (flip_vertical_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "activate", G_CALLBACK (frame_rate_entry_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "focus-out-event", G_CALLBACK (frame_rate_entry_focus_cb), viewer);
+
+    // record mode
+    g_signal_connect (viewer->recmode_usercontrolled_radiobutton, "toggled", G_CALLBACK (record_mode_toggled), viewer);
+
+    viewer->burst_control_changed = g_signal_connect (viewer->burst_nframes_radiobutton, "toggled", G_CALLBACK (burst_control_toggled), viewer);
+
+    viewer->burst_nframes_changed = g_signal_connect (viewer->burst_nframes_spinBox, "value-changed", G_CALLBACK (burst_harmonize_nframes_and_duration), viewer);
+    viewer->burst_duration_changed = g_signal_connect (viewer->burst_duration_spinBox, "value-changed", G_CALLBACK (burst_harmonize_nframes_and_duration), viewer);
 
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);

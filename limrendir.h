@@ -136,6 +136,14 @@ struct  _LrdViewer {
     GtkWidget *black_level_spin_button;
     GtkWidget *black_level_hscale;
     GtkWidget *auto_black_level_toggle;
+    // Record mode control
+    GtkWidget *recmode_usercontrolled_radiobutton;
+    GtkWidget *recmode_burst_radiobutton;
+    GtkWidget *burst_nframes_radiobutton;
+    GtkWidget *burst_duration_radiobutton;
+    GtkWidget *burst_nframes_spinBox;
+    GtkWidget *burst_duration_spinBox;
+
     // Help popover
     GtkWidget *help_button;
     GtkWidget *help_key_1;
@@ -178,6 +186,9 @@ struct  _LrdViewer {
     gulong pixel_format_changed;
     gulong new_buffer_available_video;
     gulong recording_button_changed;
+    gulong burst_control_changed;
+    gulong burst_nframes_changed;
+    gulong burst_duration_changed;
 
     guint gain_update_event;
     guint black_level_update_event;
@@ -379,6 +390,13 @@ void update_black_level_ui (LrdViewer *viewer, gboolean is_auto);
 void auto_black_level_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 
+// RECORD MODE
+void record_mode_toggled (GtkToggleButton *button, LrdViewer *viewer);
+
+void burst_control_toggled (GtkToggleButton *button, LrdViewer *viewer);
+
+void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer *viewer);
+
 // Best exposure selection
 void initialize_best_exposure_search (LrdViewer *viewer);
 
@@ -413,6 +431,12 @@ void crop_to_roi(LrdViewer *viewer);
 void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer);
 
 // Video streaming
+
+/* return time from timespec-structure in milliseconds */
+long clock_millis(struct timespec t);
+
+/* time difference in milliseconds */
+long clock_diff_millis(struct timespec t1, struct timespec t2);
 
 gboolean start_video (LrdViewer *viewer);
 void stop_video (LrdViewer *viewer);
