@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <sys/stat.h>
 #include <arv.h>
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
@@ -241,9 +242,15 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER (dialog), TRUE);
 
-//        g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS) // To use a special directory
     log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
-    path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), filename, NULL);
+
+    // Si le dossier existe deja, le mkdir echoue et osef.
+    char* lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
+    mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
+
+    log_debug("The saving dir is %s", lrd_videos_path);
+
+    path = g_build_filename(lrd_videos_path, filename, NULL);
     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
 
@@ -364,7 +371,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     }
 }
 
-// Arv buffer fail check (when recording, it is interesting to know the precise fail reason if a buffer is lost
+// Arv buffer fail check (when recording, it is interesting to know the precise fail reason if a buffer is lost)
 gboolean is_buffer_successful(ArvBuffer *buffer) {
     ArvBufferStatus const buffer_status = arv_buffer_get_status(buffer);
     if (buffer_status == ARV_BUFFER_STATUS_SUCCESS) {
