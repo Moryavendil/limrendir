@@ -179,6 +179,7 @@ gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdVi
 
 void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer) {
     if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button))) {
+        log_trace("Setting frame rate to the maximum available");
         double max_frame_rate;
         arv_camera_get_frame_rate_bounds(viewer->camera, NULL, &max_frame_rate, NULL);
 
@@ -252,6 +253,7 @@ void exposure_scale_cb (GtkRange *range, LrdViewer *viewer)
 
 gboolean update_exposure_cb (void *data)
 {
+    log_trace("Updating the exposure spinBox and slider.");
     LrdViewer *viewer = data;
     double exposure;
     double log_exposure;
@@ -429,6 +431,7 @@ void auto_black_level_cb (GtkToggleButton *toggle, LrdViewer *viewer)
 // Best exposure selection
 void initialize_best_exposure_search (LrdViewer *viewer) {
     log_info("Searching for the best exposure time...");
+    stop_key_listener(viewer);
     g_signal_handler_block (viewer->stream, viewer->new_buffer_available_video);
     gtk_widget_set_sensitive (viewer->acquisition_button, FALSE);
     gtk_widget_set_sensitive (viewer->back_button, FALSE);
@@ -439,9 +442,11 @@ void initialize_best_exposure_search (LrdViewer *viewer) {
     gtk_widget_set_sensitive (viewer->record_button, FALSE);
     gtk_widget_set_sensitive (viewer->help_button, FALSE);
     update_exposure_cb(viewer);
+    log_trace("Starting best exposure search.");
 }
 
 void finalize_best_exposure_search (LrdViewer *viewer) {
+    log_trace("Ending best exposure search.");
     update_exposure_cb(viewer);
     log_info("Best exposure time: %f us", arv_camera_get_exposure_time(viewer->camera, NULL));
     g_signal_handler_unblock(viewer->stream, viewer->new_buffer_available_video);
@@ -453,6 +458,7 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, TRUE);
     gtk_widget_set_sensitive (viewer->record_button, TRUE);
     gtk_widget_set_sensitive (viewer->help_button, TRUE);
+    start_key_listener(viewer);
 }
 
 uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
@@ -460,27 +466,37 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
     uint8_t max_pixel_value = 0;
 
     ArvBuffer *buffer;
+    int i_frame;
+    log_trace("Getting max pixel value");
 
     // skipping frames
-    for (int i_frame = 0 ; i_frame < n_frames_to_skip ; i_frame++) {
+    log_trace("\tSkipping frames");
+    i_frame = 0;
+    while (i_frame < n_frames_to_skip) {
         // take a buffer
         buffer = arv_stream_pop_buffer(stream);
 
         // Check if the buffer was successful
         if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
-            i_frame-= 1;
+            log_trace("\t\tBuffer unsuccessful...");
+        } else {
+            i_frame++;
+            log_trace("\t\tSkipped %d frame(s) out of %d", i_frame, n_frames_to_skip);
         }
 
         arv_stream_push_buffer(stream, buffer);
     }
 
-    for (int i_frame = 0 ; i_frame < n_frames ; i_frame++) {
+    // measuring frames
+    log_trace("\tTaking frames");
+    i_frame = 0;
+    while (i_frame < n_frames_to_skip) {
         // take a buffer
         buffer = arv_stream_pop_buffer(stream);
 
         // Check if the buffer was successful
         if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
-            i_frame-= 1;
+            log_trace("\t\tBuffer unsuccessful...");
         } else {
             // Get the data
             uint8_t *image_data;
@@ -491,10 +507,13 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
                 if (image_data[i] > max_pixel_value)
                     max_pixel_value = image_data[i];
             }
+            i_frame++;
+            log_trace("\t\tTaken %d frame(s) out of %d", i_frame, n_frames_to_skip);
         }
         arv_stream_push_buffer(stream, buffer);
     }
 
+    log_debug("Exposure time: %f us, max pixel value: %hhu (%d images skipped then %d images taken)", arv_camera_get_exposure_time (viewer->camera, NULL), max_pixel_value, n_frames_to_skip, n_frames);
     return max_pixel_value;
 }
 
@@ -509,9 +528,9 @@ gboolean best_exposure_search_next_step(void *data)
     LrdViewer *viewer = data;
 
     uint8_t max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
-    log_trace("Exposure time: %f us, max pixel value: %hhu (%d images skipped then %d images taken)", current_exposure_nb, max_pixel_value, n_frames_to_skip_nb, n_frames_nb);
 
     // Display
+    log_trace("Display 1 buffer");
     ArvBuffer *buffer = arv_stream_pop_buffer(viewer->stream);
     // Check if the buffer was successful
     if (arv_buffer_get_status(buffer) == ARV_BUFFER_STATUS_SUCCESS) {
@@ -548,10 +567,12 @@ gboolean best_exposure_search_next_step(void *data)
                 log_debug("Finding the best exposure time by dichotomy.");
             } else if (current_exposure_nb >= max_exposure_nb) {
                 // If, even at max exposure, we cannot have a 255 pixel: we quit
+                log_debug("Maximum exposition reached.");
                 finalize_best_exposure_search(viewer);
                 return FALSE;
             } else {
                 // Augment exposure time
+                log_trace("Doubling exposure time");
                 min_exposure_nb = current_exposure_nb - 10;
                 current_exposure_nb = current_exposure_nb * 2;
                 if (current_exposure_nb > max_exposure_nb)
@@ -573,6 +594,7 @@ gboolean best_exposure_search_next_step(void *data)
                     max_exposure_nb = current_exposure_nb;
                 }
                 current_exposure_nb = (max_exposure_nb + min_exposure_nb) / 2;
+                log_trace("Trying next exposure time: %f", current_exposure_nb);
             }
             break;
         default:
@@ -590,21 +612,20 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
     n_frames_nb = 20;
     n_frames_to_skip_nb = 5;
     arv_camera_get_exposure_time_bounds (viewer->camera, &min_exposure_nb, &max_exposure_nb, NULL);
+    log_trace("Minimum exposure possible: %d us", min_exposure_nb);
+    log_trace("Maximum exposure possible: %d us", max_exposure_nb);
 
-//    // METHOD 1 : begin at min possible exposure
-//    phase_nb = 0;
-//    current_exposure_nb = min_exposure_nb;
-
-    // METHOD 2 : begin dichotomy at current exp time
     phase_nb = 1;
     current_exposure_nb = arv_camera_get_exposure_time (viewer->camera, NULL);
-
-    arv_camera_set_exposure_time (viewer->camera, current_exposure_nb, NULL);
+    log_trace("Current exposure: %d us", current_exposure_nb);
 
     // start the shit
     double frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
     double time_per_frame = 1000 / frame_rate;
     guint time_per_step = (uint) ((n_frames_nb + n_frames_to_skip_nb) * time_per_frame) + 50;
+
+    log_trace("Current frame rate: %f FPS (%f mSPF)", frame_rate, time_per_frame);
+    log_trace("Number of steps: %d to skip, %d to measure", n_frames_to_skip_nb, n_frames_nb);
 
     log_debug("Time per step %u ms", time_per_step);
 
