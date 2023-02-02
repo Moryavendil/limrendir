@@ -177,20 +177,38 @@ gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdVi
     return FALSE;
 }
 
+double impose_frame_rate(LrdViewer *viewer, double new_frame_rate) {
+    log_trace("Trying to impose the frame rate set : %g Hz", new_frame_rate);
+
+    arv_camera_set_frame_rate(viewer->camera, new_frame_rate, NULL);
+
+    double actual_frame_rate = arv_camera_get_frame_rate(viewer->camera, NULL);
+    char *text = g_strdup_printf("%g", actual_frame_rate);
+    gtk_entry_set_text(GTK_ENTRY(viewer->frame_rate_entry), text);
+
+    burst_harmonize_nframes_and_duration(NULL, viewer);
+    log_debug("New frame rate set : %g Hz", actual_frame_rate);
+    return actual_frame_rate;
+}
+
 void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer) {
     if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button))) {
         log_trace("Setting frame rate to the maximum available");
+
         double max_frame_rate;
         arv_camera_get_frame_rate_bounds(viewer->camera, NULL, &max_frame_rate, NULL);
+//
+//        arv_camera_set_frame_rate(viewer->camera, max_frame_rate, NULL);
+//
+//        double actual_frame_rate = arv_camera_get_frame_rate(viewer->camera, NULL);
+//        char *text = g_strdup_printf("%g", actual_frame_rate);
+//        gtk_entry_set_text(GTK_ENTRY(viewer->frame_rate_entry), text);
+//        burst_harmonize_nframes_and_duration(NULL, viewer);
 
-        arv_camera_set_frame_rate(viewer->camera, max_frame_rate, NULL);
+        double actual_frame_rate = impose_frame_rate(viewer, max_frame_rate);
 
-        double actual_frame_rate = arv_camera_get_frame_rate(viewer->camera, NULL);
-        char *text = g_strdup_printf("%g", actual_frame_rate);
-        gtk_entry_set_text(GTK_ENTRY(viewer->frame_rate_entry), text);
         log_info("New frame rate set (maximum possible): %g Hz", actual_frame_rate);
 
-        burst_harmonize_nframes_and_duration(NULL, viewer);
     }
 }
 
@@ -459,6 +477,7 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     gtk_widget_set_sensitive (viewer->record_button, TRUE);
     gtk_widget_set_sensitive (viewer->help_button, TRUE);
     start_key_listener(viewer);
+    apply_max_frame_rate_if_wanted(NULL, viewer);
 }
 
 uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
@@ -513,7 +532,7 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
         arv_stream_push_buffer(stream, buffer);
     }
 
-    log_debug("Exposure time: %f us, max pixel value: %hhu (%d images skipped then %d images taken)", arv_camera_get_exposure_time (viewer->camera, NULL), max_pixel_value, n_frames_to_skip, n_frames);
+    log_debug("Max pixel value: %hhu (%d images skipped then %d images taken)", max_pixel_value, n_frames_to_skip, n_frames);
     return max_pixel_value;
 }
 
@@ -522,11 +541,15 @@ static int n_frames_nb;
 static int n_frames_to_skip_nb;
 static int phase_nb;
 static double min_exposure_nb, max_exposure_nb, current_exposure_nb;
+static double initial_frame_rate;
 
 gboolean best_exposure_search_next_step(void *data)
 {
     LrdViewer *viewer = data;
 
+    log_trace("Next step of the search", current_exposure_nb);
+    log_trace("\tExposure time: %f us", arv_camera_get_exposure_time (viewer->camera, NULL));
+    log_trace("\tFrame rate: %f FPS", arv_camera_get_frame_rate (viewer->camera, NULL));
     uint8_t max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
 
     // Display
@@ -592,15 +615,19 @@ gboolean best_exposure_search_next_step(void *data)
                 } else {
                     max_exposure_nb = current_exposure_nb;
                 }
-                current_exposure_nb = (max_exposure_nb + min_exposure_nb) / 2;
-                log_trace("Trying next exposure time: %f", current_exposure_nb);
+                current_exposure_nb = round((max_exposure_nb + min_exposure_nb) / 2);
             }
             break;
         default:
             break;
     }
 
+    log_trace("Trying next exposure time: %f", current_exposure_nb);
     arv_camera_set_exposure_time (viewer->camera, current_exposure_nb, NULL);
+    if (arv_camera_get_frame_rate (viewer->camera, NULL) != initial_frame_rate) {
+        // If the FR was diminished because the exposure time was augmented, try to compensate it
+        impose_frame_rate(viewer, initial_frame_rate);
+    }
 
     return TRUE;
 }
@@ -611,19 +638,19 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
     n_frames_nb = 20;
     n_frames_to_skip_nb = 5;
     arv_camera_get_exposure_time_bounds (viewer->camera, &min_exposure_nb, &max_exposure_nb, NULL);
-    log_trace("Minimum exposure possible: %d us", min_exposure_nb);
-    log_trace("Maximum exposure possible: %d us", max_exposure_nb);
+    log_trace("Minimum exposure possible: %f us", min_exposure_nb);
+    log_trace("Maximum exposure possible: %f us", max_exposure_nb);
 
     phase_nb = 1;
     current_exposure_nb = arv_camera_get_exposure_time (viewer->camera, NULL);
-    log_trace("Current exposure: %d us", current_exposure_nb);
+    log_trace("Current exposure: %f us", current_exposure_nb);
 
     // start the shit
-    double frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    double time_per_frame = 1000 / frame_rate;
+    initial_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
+    double time_per_frame = 1000 / initial_frame_rate;
     guint time_per_step = (uint) ((n_frames_nb + n_frames_to_skip_nb) * time_per_frame) + 50;
 
-    log_trace("Current frame rate: %f FPS (%f mSPF)", frame_rate, time_per_frame);
+    log_trace("Current frame rate: %f FPS (%f mSPF)", initial_frame_rate, time_per_frame);
     log_trace("Number of steps: %d to skip, %d to measure", n_frames_to_skip_nb, n_frames_nb);
 
     log_debug("Time per step %u ms", time_per_step);
