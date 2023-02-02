@@ -26,8 +26,9 @@
 // declare files
 // Number of buffers in the buffer queue (more is better)
 unsigned n_buffers = 100;
-// Memory allowed for buffers, in bytes (approximately)
-size_t mem_for_buffers = 200 * (1 << 20);
+// Memory allowed for buffers, in bytes
+// The max output of a GiGE link is 118 MB/s, so we put enough buffers for 2 seconds of recording, which should be enough.
+size_t mem_for_buffers = 2 * 118 * (1 << 20);
 // Number of FPS to display while recording (less is better)
 gint display_fps_recording = 10;
 // Time since last update
