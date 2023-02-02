@@ -124,6 +124,7 @@ void log_initialize(LogLevel logging_level) {
     char const *extension = ".log";
     log_filename = g_strdup_printf("%s_%s%s", core, date_string, extension);
     log_file = fopen(log_filename, "w");
+    setvbuf(log_file, NULL, _IOLBF, 0);
 
     log_trace("Log level: %d", log_level);
 }
