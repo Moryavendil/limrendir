@@ -1338,7 +1338,7 @@ gboolean start_recording (LrdViewer *viewer) {
             log_debug("Tried to launch a recording but that was unsuccessful.");
 
             abort_recording(viewer);
-            start_video(viewer); // We need to restart t6he video because if we are here we stopped it
+            start_video(viewer); // We need to restart the video because if we are here we stopped it
             return FALSE;
         }
         char *dataset_core_name = strrchr(viewer->dataset_name, '/');
@@ -1360,25 +1360,40 @@ gboolean start_recording (LrdViewer *viewer) {
         return successful_launch;
     } else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
         // burst mode
-        stop_video(viewer);
 
-        char *dataset_core_name = strrchr(viewer->dataset_name, '/');
-        if (dataset_core_name == NULL)
-            dataset_core_name = viewer->dataset_name;
-        log_info("Beginning to record a video named '%s'", dataset_core_name);
+        switch (viewer->record_type) {
+            case RECORDTYPE_NONE:
+                abort_recording(viewer);
+                return FALSE;
+                break;
+            case RECORDTYPE_GEVCAPTURE:
+                stop_video(viewer);
 
-        gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
-        gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
-        gtk_widget_set_sensitive(viewer->record_button, FALSE);
-        gtk_widget_set_sensitive(viewer->back_button, FALSE);
-        gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
+                char *dataset_core_name = strrchr(viewer->dataset_name, '/');
+                if (dataset_core_name == NULL)
+                    dataset_core_name = viewer->dataset_name;
+                log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-        gtk_widget_set_sensitive(viewer->help_button, FALSE);
+                gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
+                gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+                gtk_widget_set_sensitive(viewer->record_button, FALSE);
+                gtk_widget_set_sensitive(viewer->back_button, FALSE);
+                gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
+                gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
+                gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
+
+                gtk_widget_set_sensitive(viewer->help_button, FALSE);
 
 
-        g_timeout_add (500, bourrin_recording, viewer);
+                g_timeout_add (500, bourrin_recording, viewer);
+                break;
+            default:
+                log_info("Unsupported video format");
+
+                abort_recording(viewer);
+                return FALSE;
+                break;
+        }
 
     }
 }
