@@ -74,11 +74,11 @@ static const GOptionEntry arv_viewer_option_entries[] =
 		&arv_option_uv_usb_mode,		"USB device I/O mode",
 		"{sync|async}"
 	},
-//	{
-//		"debug", 				'd', 0, G_OPTION_ARG_STRING,
-//		&arv_viewer_option_debug_domains, 	NULL,
-//		"{<category>[:<level>][,...]|help}"
-//	},
+	{
+		"aravis-debug", 				'd', 0, G_OPTION_ARG_STRING,
+		&arv_viewer_option_debug_domains, 	NULL,
+		"{<category>[:<level>][,...]|help}"
+	},
 	{ NULL }
 };
 
@@ -162,7 +162,7 @@ static const GOptionEntry limrendir_option_entries[] =
                         &lrd_option_dataset_name,       "Output dataset name", "s"
                 },
                 {
-                        "log-level",                'd',  0, G_OPTION_ARG_INT,
+                        "log-level",                '\0',  0, G_OPTION_ARG_INT,
                         &lrd_option_log_level, "Logging level", "0-4 (error, warn, info, debug, trace)"
                 },
                 {
