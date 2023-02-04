@@ -447,6 +447,13 @@ void auto_black_level_cb (GtkToggleButton *toggle, LrdViewer *viewer)
 
 
 // Best exposure selection
+
+static int n_frames_nb;
+static int n_frames_to_skip_nb;
+static int phase_nb;
+static double min_exposure_nb, max_exposure_nb, current_exposure_nb;
+static double initial_frame_rate;
+
 void initialize_best_exposure_search (LrdViewer *viewer) {
     log_info("Searching for the best exposure time...");
     stop_key_listener(viewer);
@@ -477,6 +484,7 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     gtk_widget_set_sensitive (viewer->record_button, TRUE);
     gtk_widget_set_sensitive (viewer->help_button, TRUE);
     start_key_listener(viewer);
+    impose_frame_rate(viewer, initial_frame_rate);
     apply_max_frame_rate_if_wanted(NULL, viewer);
 }
 
@@ -535,13 +543,6 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
     log_debug("Max pixel value: %hhu (%d images skipped then %d images taken)", max_pixel_value, n_frames_to_skip, n_frames);
     return max_pixel_value;
 }
-
-// The non blocking version (multi-threaded so not blocking)
-static int n_frames_nb;
-static int n_frames_to_skip_nb;
-static int phase_nb;
-static double min_exposure_nb, max_exposure_nb, current_exposure_nb;
-static double initial_frame_rate;
 
 gboolean best_exposure_search_next_step(void *data)
 {
@@ -649,6 +650,9 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
     initial_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
     double time_per_frame = 1000 / initial_frame_rate;
     guint time_per_step = (uint) ((n_frames_nb + n_frames_to_skip_nb) * time_per_frame) + 50;
+    if (time_per_step < 500) {
+        time_per_step = 500;
+    }
 
     log_trace("Current frame rate: %f FPS (%f mSPF)", initial_frame_rate, time_per_frame);
     log_trace("Number of steps: %d to skip, %d to measure", n_frames_to_skip_nb, n_frames_nb);

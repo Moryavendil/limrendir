@@ -1215,11 +1215,8 @@ static gboolean bourrin_recording(void *data)
     for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
 
         arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
-        if ( (log_level >= LOG_INFO) && (n_output_buffers > 1)) {
-            fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
-        }
-        if (n_output_buffers > n_buffers/2) {
-            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", ((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
+        if (n_output_buffers > 4*n_buffers/5) {
+            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", 100*((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
         }
 
         record_this_buffer = TRUE;
