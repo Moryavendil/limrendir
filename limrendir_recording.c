@@ -1311,7 +1311,7 @@ gboolean start_recording (LrdViewer *viewer) {
     viewer->record_type = confirm_dataset_name(viewer);
 
     // Change the buffer size
-    log_debug("Size allowed for buffers: %zu bytes (%zu kB)", mem_for_buffers, mem_for_buffers / (1 << 10));
+    log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
 
     size_t buffer_size = 0;
     if (viewer->show_roi) {
