@@ -397,10 +397,13 @@ activate (GApplication *application)
 	viewer->black_level_spin_button = GTK_WIDGET (gtk_builder_get_object (builder, "black_level_spinbutton"));
 	viewer->black_level_hscale = GTK_WIDGET (gtk_builder_get_object (builder, "black_level_hscale"));
 	viewer->auto_black_level_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "auto_black_level_togglebutton"));
+
 	viewer->rotate_cw_button = GTK_WIDGET (gtk_builder_get_object (builder, "rotate_cw_button"));
 	viewer->flip_vertical_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_vertical_togglebutton"));
 	viewer->flip_horizontal_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_horizontal_togglebutton"));
-    viewer->acquisition_button = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_button"));
+    viewer->camera_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "camera_settings_button"));
+    viewer->acquisition_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_settings_button"));
+
     // Record mode
     viewer->recmode_usercontrolled_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_usercontrolled_radiobutton"));
     viewer->recmode_burst_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_burst_radiobutton"));
@@ -408,6 +411,7 @@ activate (GApplication *application)
     viewer->burst_duration_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_radiobutton"));
     viewer->burst_nframes_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_spinBox"));
     viewer->burst_duration_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_spinBox"));
+    viewer->acquisition_name_entry = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_name_entry"));
 
     // Help popover
     viewer->help_button = GTK_WIDGET (gtk_builder_get_object (builder, "help_button"));
@@ -456,6 +460,9 @@ activate (GApplication *application)
 	g_signal_connect (viewer->flip_vertical_toggle, "clicked", G_CALLBACK (flip_vertical_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "activate", G_CALLBACK (frame_rate_entry_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "focus-out-event", G_CALLBACK (frame_rate_entry_focus_cb), viewer);
+
+    g_signal_connect (viewer->acquisition_settings_button, "toggled", G_CALLBACK (change_default_acquisition_name), viewer);
+    g_signal_connect (viewer->acquisition_name_entry, "changed", G_CALLBACK (acquisition_name_changed_cb), viewer);
 
     // record mode
     g_signal_connect (viewer->recmode_usercontrolled_radiobutton, "toggled", G_CALLBACK (record_mode_toggled), viewer);

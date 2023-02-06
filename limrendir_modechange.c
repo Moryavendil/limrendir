@@ -61,7 +61,8 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
     gtk_widget_set_visible (viewer->flip_vertical_toggle, video_visibility);
     gtk_widget_set_visible (viewer->flip_horizontal_toggle, video_visibility);
     gtk_widget_set_visible (viewer->snapshot_button, video_visibility);
-    gtk_widget_set_visible (viewer->acquisition_button, video_visibility);
+    gtk_widget_set_visible (viewer->camera_settings_button, video_visibility);
+    gtk_widget_set_visible (viewer->acquisition_settings_button, video_visibility);
     gtk_widget_set_visible (viewer->help_button, video_visibility);
 
     // Custom G2L

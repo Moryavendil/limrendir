@@ -30,13 +30,13 @@ add_executable( limrendir
         limrendir.h
         limrendir.c
         limrendir_recording.c
-        limrendir_acquisitionsettings.c
+        limrendir_camera_settings.c
         limrendir_keyboardcommands.c
         limrendir_streaming.c
         limrendir_fovsettings.c
         limrendir_modechange.c
 
-        main.c)
+        main.c limrendir_acquisition_settings.c)
 
 target_include_directories(limrendir PUBLIC ${GTK_INCLUDE_DIRS} ${GST_INCLUDE_DIRS} ${ARAVIS_INCLUDE_DIRS})
 target_link_directories(limrendir PUBLIC ${GSTLIBS_LIBRARY_DIRS} ${ARAVIS_LIBRARY_DIRS})

@@ -348,6 +348,7 @@ gboolean start_video (LrdViewer *viewer)
         arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
 
     set_camera_control_widgets(viewer);
+    set_acquisition_settings_widgets(viewer);
     pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
 
     caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);

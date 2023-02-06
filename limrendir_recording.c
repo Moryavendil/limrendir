@@ -1371,7 +1371,8 @@ gboolean start_recording (LrdViewer *viewer) {
             dataset_core_name = viewer->dataset_name;
         log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-        gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
+        gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
+        gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
         gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
         gtk_widget_set_sensitive(viewer->help_description_2, FALSE);
@@ -1399,7 +1400,8 @@ gboolean start_recording (LrdViewer *viewer) {
                     dataset_core_name = viewer->dataset_name;
                 log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-                gtk_widget_set_sensitive(viewer->acquisition_button, FALSE);
+                gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
+                gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
                 gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
                 gtk_widget_set_sensitive(viewer->record_button, FALSE);
                 gtk_widget_set_sensitive(viewer->back_button, FALSE);
@@ -1442,7 +1444,8 @@ gboolean stop_recording (LrdViewer *viewer) {
 
     log_info("End of recording.");
 
-    gtk_widget_set_sensitive (viewer->acquisition_button, TRUE);
+    gtk_widget_set_sensitive (viewer->camera_settings_button, TRUE);
+    gtk_widget_set_sensitive (viewer->acquisition_settings_button, TRUE);
     gtk_widget_set_sensitive (viewer->snapshot_button, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_2, TRUE);

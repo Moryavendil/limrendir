@@ -103,11 +103,7 @@ struct  _LrdViewer {
     GtkWidget *refresh_button;
     GtkWidget *video_mode_button;
     GtkWidget *camera_tree;
-    GtkWidget *back_button;
-    GtkWidget *snapshot_button;
-    GtkWidget *rotate_cw_button;
-    GtkWidget *flip_vertical_toggle;
-    GtkWidget *flip_horizontal_toggle;
+    // FOV selection
     GtkWidget *camera_parameters;
     GtkWidget *pixel_format_combo;
     GtkWidget *camera_x;
@@ -116,6 +112,14 @@ struct  _LrdViewer {
     GtkWidget *camera_binning_y;
     GtkWidget *camera_width;
     GtkWidget *camera_height;
+    // VIDEO MODE
+    GtkWidget *back_button;
+    GtkWidget *snapshot_button;
+    GtkWidget *rotate_cw_button;
+    GtkWidget *flip_vertical_toggle;
+    GtkWidget *flip_horizontal_toggle;
+    GtkWidget *camera_settings_button;
+    GtkWidget *acquisition_settings_button;
     // VIDEO
     GtkWidget *video_box;
     GtkWidget *video_frame;
@@ -124,7 +128,6 @@ struct  _LrdViewer {
     GtkWidget *roi_label;
     GtkWidget *image_label;
     // Camera control popover
-    GtkWidget *acquisition_button;
     GtkWidget *trigger_combo_box;
     GtkWidget *frame_rate_entry;
     GtkWidget *exposure_spin_button;
@@ -136,13 +139,14 @@ struct  _LrdViewer {
     GtkWidget *black_level_spin_button;
     GtkWidget *black_level_hscale;
     GtkWidget *auto_black_level_toggle;
-    // Record mode control
+    // Acquisition control popover
     GtkWidget *recmode_usercontrolled_radiobutton;
     GtkWidget *recmode_burst_radiobutton;
     GtkWidget *burst_nframes_radiobutton;
     GtkWidget *burst_duration_radiobutton;
     GtkWidget *burst_nframes_spinBox;
     GtkWidget *burst_duration_spinBox;
+    GtkWidget *acquisition_name_entry;
 
     // Help popover
     GtkWidget *help_button;
@@ -332,7 +336,7 @@ void camera_binning_cb (GtkSpinButton *spin_button, LrdViewer *viewer);
 void update_camera_region (LrdViewer *viewer);
 
 
-// ACQUISITION SETTINGS
+// CAMERA SETTINGS
 
 // Set all the widgets
 void set_camera_control_widgets(LrdViewer *viewer);
@@ -389,28 +393,42 @@ void update_black_level_ui (LrdViewer *viewer, gboolean is_auto);
 
 void auto_black_level_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
+// ACQUISITION SETTINGS
 
+void set_acquisition_settings_widgets(LrdViewer *viewer);
 // RECORD MODE
+
 void record_mode_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
 void burst_control_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
 void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer *viewer);
 
+void change_default_acquisition_name (GtkToggleButton *button, LrdViewer *viewer);
+
+// Acquisition name
+
+char *obtain_new_original_filename(LrdViewer *viewer);
+
+void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
+
+//
+
+
 // Best exposure selection
-void initialize_best_exposure_search (LrdViewer *viewer);
+        void initialize_best_exposure_search (LrdViewer *viewer);
 
-void finalize_best_exposure_search (LrdViewer *viewer);
+        void finalize_best_exposure_search (LrdViewer *viewer);
 
-uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
+        uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
 
 // The blocking version (simple but annoying)
-void best_exposure_search_blocking (LrdViewer *viewer);
+        void best_exposure_search_blocking (LrdViewer *viewer);
 
 // The non blocking version (multi-threaded so not blocking)
-gboolean best_exposure_search_next_step(void *data);
+        gboolean best_exposure_search_next_step(void *data);
 
-void best_exposure_search_nonblocking (LrdViewer *viewer);
+        void best_exposure_search_nonblocking (LrdViewer *viewer);
 
 // KEYBOARD ROUTINES
 // Help popover
