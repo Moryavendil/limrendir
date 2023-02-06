@@ -1109,12 +1109,12 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
 
 
 // sets up the arv stream we are gonna record from
-//static gboolean bourrin_recording(LrdViewer *viewer) {
+// static gboolean bourrin_recording(LrdViewer *viewer) {
 static gboolean bourrin_recording(void *data)
 {
     LrdViewer *viewer = data;
 
-    log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
+    log_debug("Preparing the acquisition stream (aravis GigE Vision stream).");
     unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
@@ -1215,9 +1215,9 @@ static gboolean bourrin_recording(void *data)
     for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
 
         arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
-        if (n_output_buffers > 4*n_buffers/5) {
-            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", 100*((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
-        }
+//        if (n_output_buffers > 4*n_buffers/5) {
+//            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", 100*((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
+//        }
 
         record_this_buffer = TRUE;
 
