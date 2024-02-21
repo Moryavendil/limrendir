@@ -329,6 +329,28 @@ void see_whole_field_of_view(LrdViewer *viewer) {
     log_trace("=== End VIEWALL");
 }
 
+void zoomin(LrdViewer *viewer) {
+    log_debug("Zooming");
+    log_trace("====== ZOOM Start");
+
+    gint old_x, old_y, old_w, old_h;
+    arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
+    log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
+
+    viewer->roi_x = old_w/4;
+    viewer->roi_y = old_h/4;
+    viewer->roi_w = old_w/2;
+    viewer->roi_h = old_h/2;
+
+    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+
+    viewer->show_roi = gtk_true();
+
+    crop_to_roi(viewer);
+
+    log_trace("====== ZOOM End");
+}
+
 // TOGGLE GRID (g)
 void toggle_grid(LrdViewer *viewer) {
     if (viewer->grid_type == GRID_NOGRID) {
@@ -438,6 +460,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
             case GDK_KEY_c:
                 crop_to_roi(viewer);
+                break;
+            case GDK_KEY_z:
+                zoomin(viewer);
                 break;
 
             case GDK_KEY_Up:
