@@ -38,55 +38,72 @@ struct timespec clock_last_snapshot_recording, clock_now_recording;
 typedef enum {
     FILE_IMAGEFILE,
     FILE_STAMPFILE,
-    FILE_METAFILE
+    FILE_METAFILE,
+    FILE_GCVDIR
 } FileType;
 FILE *imageFile = NULL;
 FILE *stampFile = NULL;
 FILE *metaFile = NULL;
 
-char* have_filename(LrdViewer *viewer, FileType file_type) {
-    if (viewer->dataset_name == NULL) { return NULL; }
-
-    char *extension = "";
-    if (file_type == FILE_IMAGEFILE) {
-        extension = ".raw";
-    } else if (file_type == FILE_STAMPFILE) {
-        extension = ".stamps";
-    } else if (file_type == FILE_METAFILE) {
-        extension = ".meta";
+// combine to add dir to filename, shamelessly taken from stackoverflow
+void combine(char* destination, const char* path1, const char* path2)
+{
+    if(path1 == NULL && path2 == NULL) {
+        strcpy(destination, "");;
     }
-
-    size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
-    char *filename = (char *) g_malloc(filename_s);
-    snprintf(filename, filename_s, "%s%s", viewer->dataset_name, extension);
-
-    return filename;
+    else if(path2 == NULL || strlen(path2) == 0) {
+        strcpy(destination, path1);
+    }
+    else if(path1 == NULL || strlen(path1) == 0) {
+        strcpy(destination, path2);
+    }
+    else {
+        char directory_separator[] = "/";
+#ifdef WIN32
+        directory_separator[0] = '\\';
+#endif
+        const char *last_char = path1;
+        while(*last_char != '\0')
+            last_char++;
+        int append_directory_separator = 0;
+        if(strcmp(last_char, directory_separator) != 0) {
+            append_directory_separator = 1;
+        }
+        strcpy(destination, path1);
+        if(append_directory_separator)
+            strcat(destination, directory_separator);
+        strcat(destination, path2);
+    }
 }
 
 void open_files(LrdViewer *viewer) {
-//    const char *imageExt = ".raw";
-//    const char *stampExt = ".stamps";
-//    const char *metaExt  = ".meta";
-//
-//
-//    size_t const image_filename_s = strlen(imageExt) + strlen(dataset_name) + 1;
-//    char *image_filename = (char *) g_malloc(image_filename_s);
-//    snprintf(image_filename, image_filename_s, "%s%s", dataset_name, imageExt);
-//
-//    size_t const stamp_filename_s = strlen(stampExt) + strlen(dataset_name) + 1;
-//    char *stamp_filename = (char *) g_malloc(stamp_filename_s);
-//    snprintf(stamp_filename, stamp_filename_s, "%s%s", dataset_name, stampExt);
-//
-//    size_t const meta_filename_s = strlen(metaExt) + strlen(dataset_name) + 1;
-//    char *meta_filename = (char *) g_malloc(meta_filename_s);
-//    snprintf(meta_filename, meta_filename_s, "%s%s", dataset_name, metaExt);
 
+    char *extension = ".gcv";
+    size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
+    char *dirname = (char *) g_malloc(filename_s);
+    snprintf(dirname, filename_s, "%s%s", viewer->dataset_name, extension);
 
-    mkdir("logs", S_IRWXU | S_IRWXG | S_IRWXO);
+    log_trace("dirpath: %s", dirname);
 
-    imageFile = fopen(have_filename(viewer, FILE_IMAGEFILE), "w");
-    stampFile = fopen(have_filename(viewer, FILE_STAMPFILE), "w");
-    metaFile = fopen(have_filename(viewer, FILE_METAFILE), "w");
+    mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO);
+
+    const char* rawvideo_filename = "rawvideo.raw";
+    char rawvideo_path[strlen(dirname) + strlen(rawvideo_filename) + 2];
+    combine(rawvideo_path, dirname, rawvideo_filename);
+    log_trace("rawvideo_path: %s", rawvideo_path);
+    imageFile = fopen(rawvideo_path, "w");
+
+    const char* stamps_filename = "stamps.stamps";
+    char stamps_path[strlen(dirname) + strlen(stamps_filename) + 2];
+    combine(stamps_path, dirname, stamps_filename);
+    log_trace("stamps_path: %s", stamps_path);
+    stampFile = fopen(stamps_path, "w");
+
+    const char* meta_filename = "metainfo.meta";
+    char meta_path[strlen(dirname) + strlen(meta_filename) + 2];
+    combine(meta_path, dirname, meta_filename);
+    log_trace("meta_path: %s", meta_path);
+    metaFile = fopen(meta_path, "w");
 }
 
 void close_files() {
@@ -164,6 +181,23 @@ gboolean does_file_exist(char *filename) {
     return FALSE;
 }
 
+gboolean does_dir_exist(char *dirname) {
+    if (dirname == NULL) { return FALSE; }
+
+    DIR* dir = opendir(dirname);
+    if (dir) {
+        closedir(dir);
+        return TRUE;
+    } else if (ENOENT == errno) {
+        /* Directory does not exist. */
+        return FALSE;
+    } else {
+        /* opendir() failed for some other reason. */
+        return TRUE;
+    }
+}
+
+
 char *obtain_new_original_filename(LrdViewer *viewer) {
     char *filename;
     GDateTime *date;
@@ -220,14 +254,20 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
         // Who knows ¯\_(ツ)_/¯
         filename = malloc (strlen(viewer->dataset_name)+1);
         memcpy(filename, viewer->dataset_name, strlen(viewer->dataset_name)+1);
-        char *image_filename = have_filename(viewer, FILE_IMAGEFILE);
-        if (does_file_exist(have_filename(viewer, FILE_IMAGEFILE))) {
+
+        // This part is useless but la flemme de l'enlever
+        char *extension = ".gcv";
+        size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
+        char *dirname = (char *) g_malloc(filename_s);
+        snprintf(dirname, filename_s, "%s%s", viewer->dataset_name, extension);
+
+        if (does_file_exist(dirname) || does_dir_exist(dirname)) {
             log_debug("Name %s is taken, generating another one.", viewer->dataset_name);
             filename = obtain_new_original_filename(viewer);
         } else {
-            log_debug("Name %s seems to be free (no file named %s).", viewer->dataset_name, image_filename);
+            log_debug("Name %s seems to be free (nothing named %s).", viewer->dataset_name, dirname);
         }
-        g_free(image_filename);
+        g_free(dirname);
     }
 
     log_debug("Asking for a name choice, default is %s.", filename);
@@ -239,7 +279,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *path;
 
     dialog = gtk_file_chooser_dialog_new("Save Video", GTK_WINDOW (viewer->main_window),
-                                         GTK_FILE_CHOOSER_ACTION_SAVE,
+//                                         GTK_FILE_CHOOSER_ACTION_SAVE,
+                                         GTK_FILE_CHOOSER_ACTION_CREATE_FOLDER,
                                          "_Cancel",
                                          GTK_RESPONSE_CANCEL,
                                          "_Save",
@@ -271,11 +312,13 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     filter_all = gtk_file_filter_new();
     gtk_file_filter_set_name(filter_all, any_filter_name);
 
-    const gchar *raw_filter_name = "GevCapture style video (*.raw)";
+    const gchar *raw_filter_name = "GevCapture style video (*.gcv)";
     filter_gcv = gtk_file_filter_new();
     gtk_file_filter_set_name(filter_gcv, raw_filter_name);
-    gtk_file_filter_add_pattern(filter_gcv, "*.raw");
-    gtk_file_filter_add_pattern(filter_all, "*.raw");
+//    gtk_file_filter_add_pattern(filter_gcv, "*.gcv");
+//    gtk_file_filter_add_pattern(filter_all, "*.gcv");
+    gtk_file_filter_add_pattern(filter_gcv, "*");
+    gtk_file_filter_add_pattern(filter_all, "*");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
 
     const gchar *flv_filter_name = "FLV video (H264 encoding) (*.flv)";
@@ -326,9 +369,9 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
         const gchar *extension = strrchr(filename, '.');
 
-        log_trace("File name: %s", filename);
-        log_trace("dataset name: %s", viewer->dataset_name);
-        log_trace("Extension: %s", extension);
+        log_trace("\tFile name: %s", filename);
+        log_trace("\tdataset name: %s", viewer->dataset_name);
+        log_trace("\tExtension: %s", extension);
 
         // GTK3 file chooser does not allow for automatic modification of the extension when a different filter is selected
         // I don't know why and I think it is a shame. cf https://gitlab.gnome.org/GNOME/gtk/-/issues/4626
@@ -356,7 +399,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
                 log_info("Video type wanted not understood. Aborting recording.");
                 chosen_filetype = RECORDTYPE_NONE;
             }
-        } else if (strcmp(extension, ".raw") == 0) {
+        } else if (strcmp(extension, ".gcv") == 0) {
             chosen_filetype = RECORDTYPE_GEVCAPTURE;
         } else if (strcmp(extension, ".avi") == 0) {
             chosen_filetype = RECORDTYPE_AVI;
