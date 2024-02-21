@@ -37,6 +37,7 @@ void camera_region_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
     int width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (viewer->camera_width));
     int height = gtk_spin_button_get_value (GTK_SPIN_BUTTON (viewer->camera_height));
 
+    log_trace("Trying to set the region to (x:%d, y:%d, w:%d, h:%d)", x, y, width, height);
     arv_camera_set_region (viewer->camera, x, y, width, height, NULL);
 
     update_camera_region (viewer);
@@ -47,6 +48,7 @@ void camera_binning_cb (GtkSpinButton *spin_button, LrdViewer *viewer) {
     int dx = gtk_spin_button_get_value (GTK_SPIN_BUTTON (viewer->camera_binning_x));
     int dy = gtk_spin_button_get_value (GTK_SPIN_BUTTON (viewer->camera_binning_y));
 
+    log_trace("Trying to set the binning to (binX:%d, binY:%d)", dx, dy);
     arv_camera_set_binning (viewer->camera, dx, dy, NULL);
 
     update_camera_region (viewer);
@@ -55,11 +57,13 @@ void camera_binning_cb (GtkSpinButton *spin_button, LrdViewer *viewer) {
 // Updates the region and binning spin boxes
 void update_camera_region (LrdViewer *viewer)
 {
+    log_debug("Updating the camera region");
     gint x, y, width, height;
     gint dx, dy;
     gint min, max;
     gint inc;
 
+    // Block signals to avoid infinite recursion
     g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
     g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
     g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
@@ -67,8 +71,11 @@ void update_camera_region (LrdViewer *viewer)
     g_signal_handler_block (viewer->camera_binning_x, viewer->camera_binning_x_changed);
     g_signal_handler_block (viewer->camera_binning_y, viewer->camera_binning_y_changed);
 
+    // Get the real region
     arv_camera_get_region (viewer->camera, &x, &y, &width, &height, NULL);
     arv_camera_get_binning (viewer->camera, &dx, &dy, NULL);
+    log_trace("The region is (x:%d, y:%d, w:%d, h:%d)", x, y, width, height);
+    log_trace("The binning is (binX:%d, binY:%d)", dx, dy);
 
     // Bin x
     arv_camera_get_x_binning_bounds (viewer->camera, &min, &max, NULL);
@@ -118,6 +125,7 @@ void update_camera_region (LrdViewer *viewer)
     gtk_spin_button_set_snap_to_ticks (GTK_SPIN_BUTTON (viewer->camera_height), TRUE);
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (viewer->camera_height), height);
 
+    // Re-enable signals
     g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
     g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
     g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);

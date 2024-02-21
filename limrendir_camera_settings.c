@@ -138,7 +138,6 @@ void set_camera_control_widgets(LrdViewer *viewer)
 }
 
 // Frame rate routines
-
 void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus) {
     char *text;
 

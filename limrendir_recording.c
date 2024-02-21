@@ -81,6 +81,9 @@ void open_files(LrdViewer *viewer) {
 //    char *meta_filename = (char *) g_malloc(meta_filename_s);
 //    snprintf(meta_filename, meta_filename_s, "%s%s", dataset_name, metaExt);
 
+
+    mkdir("logs", S_IRWXU | S_IRWXG | S_IRWXO);
+
     imageFile = fopen(have_filename(viewer, FILE_IMAGEFILE), "w");
     stampFile = fopen(have_filename(viewer, FILE_STAMPFILE), "w");
     metaFile = fopen(have_filename(viewer, FILE_METAFILE), "w");
