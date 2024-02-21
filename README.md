@@ -59,12 +59,21 @@ See also the advices [here](https://aravisproject.github.io/aravis/ethernet.html
 Limrendir is written in C and based on Aravis (0.8), gstreamer (1.0) and GTK+ (3.0).
 
 A consequent part of the code is directly burrowed or adapted from Aravis Viewer. My additions consist mainly of 
-* Smoother control of the acquisition and field of view parameters with key bindings routines inspired by gevCapture and
-* Recording capabilities, with different formats supported.
+
+ * Smoother control of the acquisition and field of view parameters with key bindings routines inspired by gevCapture and
+ * Recording capabilities, with different formats supported (at term).
 
 I am not a professional software developer so the code quality might not be perfect. But hey, it works !
 
 Also there is a `GObject error` when launching the software. I don't know why. It doesn't seem to inhibit anything so I didn't search too hard. Any patch welcome :)
+
+
+## To-Do list
+
+Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
+
+
+? Add zebra patterns
 
 
 ## Licence
