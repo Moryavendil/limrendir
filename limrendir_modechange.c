@@ -28,7 +28,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 
             video_visibility = FALSE;
             gtk_stack_set_visible_child (GTK_STACK (viewer->main_stack), viewer->camera_box);
-            gtk_header_bar_set_title (GTK_HEADER_BAR (viewer->main_headerbar), "AraViewFork (EP please don't sue me)");
+            gtk_header_bar_set_title (GTK_HEADER_BAR (viewer->main_headerbar), "Limrendir");
             gtk_header_bar_set_subtitle (GTK_HEADER_BAR (viewer->main_headerbar), NULL);
 
 
