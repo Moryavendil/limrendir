@@ -399,6 +399,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
                 log_info("Video type wanted not understood. Aborting recording.");
                 chosen_filetype = RECORDTYPE_NONE;
             }
+            // Remove the empty folder created with action GTK_FILE_CHOOSER_ACTION_CREATE_FOLDER
+            rmdir(filename);
         } else if (strcmp(extension, ".gcv") == 0) {
             chosen_filetype = RECORDTYPE_GEVCAPTURE;
         } else if (strcmp(extension, ".avi") == 0) {
