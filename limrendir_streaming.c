@@ -192,6 +192,20 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
     draw_grid_on_buffer(buffer_data_uint8, width, height, viewer->grid_type);
     draw_roi_buffer(buffer_data_uint8, width, height, viewer);
 
+//    // GET MIN MAX
+//    uint8_t valbuffermin = 255;
+//    uint8_t valbuffermax = 0;
+//    for (int i_hline = 0 ; i_hline < height ; i_hline+=1) {
+//        for (int i_vline = 0 ; i_vline < width ; i_vline += 1) {
+//            if (buffer_data_uint8[i_hline*width + i_vline] > valbuffermax) {
+//                valbuffermax = buffer_data_uint8[i_hline*width + i_vline];
+//            }
+//            if (buffer_data_uint8[i_hline*width + i_vline] < valbuffermin) {
+//                valbuffermin = buffer_data_uint8[i_hline*width + i_vline];
+//            }
+//        }
+//    }
+
 //    printf("%hhu\n", buffer_data_uint8[0]);
 
     buffer_data = (char *) buffer_data_uint8;
@@ -264,7 +278,6 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     if (arv_buffer_get_status(arv_buffer) != ARV_BUFFER_STATUS_SUCCESS) {
         arv_stream_push_buffer (stream, arv_buffer);
     } else {
-
 
         // Push back the buffer (in the right queue)
         if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000) {
@@ -550,6 +563,38 @@ gboolean update_status_bar_cb (void *data)
     text = NULL;
     if (viewer->show_roi) {
         text = g_strdup_printf("ROI: +%d +%d %dx%d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    } else if (viewer->last_buffer != NULL) {
+        uint8_t *buffer_data_uint8;
+        size_t buffer_size;
+
+        // get the data
+        buffer_data_uint8 = (uint8_t *) arv_buffer_get_data (viewer->last_buffer, &buffer_size);
+
+        // GET MIN MAX
+        uint8_t valbuffermin = 255;
+        uint8_t valbuffermax = 0;
+        size_t saturated_0 = 0;
+        size_t saturated_255 = 0;
+        for (size_t i = 0 ; i < buffer_size ; i+=1) {
+            if (buffer_data_uint8[i] > valbuffermax) {
+                valbuffermax = buffer_data_uint8[i];
+            }
+            if (buffer_data_uint8[i] < valbuffermin) {
+                valbuffermin = buffer_data_uint8[i];
+            }
+            if (buffer_data_uint8[i] == 0) {
+                saturated_0 += 1;
+            }
+            if (buffer_data_uint8[i] == 255) {
+                saturated_255 += 1;
+            }
+        }
+        float percent_saturated_0 = 100 * (float) saturated_0 / (float) buffer_size;
+        float percent_saturated_255 = 100 * (float) saturated_255 / (float) buffer_size;
+//        text = g_strdup_printf(" %d - %d ", valbuffermax, valbuffermin);
+        text = g_strdup_printf("(%.2f %% saturated) %d - %d (%.2f %% saturated)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
+//        text = g_strdup_printf("(%d / %d) (%.5f %% saturated)", saturated_0, buffer_size, percent_saturated_0);
+
     }
     gtk_label_set_label (GTK_LABEL (viewer->roi_label), text);
     g_free (text);
