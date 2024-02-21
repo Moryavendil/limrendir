@@ -23,6 +23,7 @@ void help(LrdViewer *viewer) {
 
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
         printf("a .................. See the largest possible field of view                     \n");
+        printf("z .................. Zoom on the center of the current field of view            \n");
         printf("r .................. Toggle Region Of Interest mode                             \n");
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
@@ -60,14 +61,16 @@ void setup_help_popover (LrdViewer *viewer) {
                                                                   "Optimize exposure (experimental)");
     // ROI
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
-                                                         "a\n"
+                                                          "a\n"
+                                                          "z\n"
                                                          "r\n"
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
                                                          "↑←↓→ \t(keypad)\n"
                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
-                                                                 "See the largest possible field of view\n"
+                                                                  "See the largest possible field of view\n"
+                                                                  "Zoom at the center of the FOV\n"
                                                                  "Toggle Region Of Interest mode\n"
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
