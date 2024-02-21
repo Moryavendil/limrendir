@@ -18,7 +18,7 @@ First you have to install some dependencies to be able to install Aravis
 
 Also, because Aravis relies on it you have to install [meson](https://mesonbuild.com/) (if the version given by apt is too old, try using pip).
 
-Then [install the Aravis library](https://aravisproject.github.io/aravis/building.html)) (version >= 0.8). 
+Then [install the Aravis library](https://aravisproject.github.io/aravis/building.html) (version >= 0.8). 
 
 Then download this project and in the main directory type
 
