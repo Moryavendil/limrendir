@@ -358,6 +358,8 @@ void zoomin(LrdViewer *viewer) {
 
     crop_to_roi(viewer);
 
+    viewer->show_roi = gtk_false();
+
     log_trace("====== ZOOM End");
 }
 
