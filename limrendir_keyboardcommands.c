@@ -206,7 +206,7 @@ void crop_to_roi(LrdViewer *viewer) {
         return;
     }
     log_debug("Cropping to ROI");
-    log_trace("=== Start CROP");
+    log_trace("====== CROP Start");
 
     gint old_x, old_y, old_width, old_height;
     arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_width, &old_height, NULL);
@@ -218,33 +218,22 @@ void crop_to_roi(LrdViewer *viewer) {
     int new_y = old_y + viewer->roi_y;
     int new_width = viewer->roi_w;
     int new_height = viewer->roi_h;
-    log_trace("New region: x: %d ; y: %d ; w: %d ; h: %d", new_x, new_y, new_width, new_height);
+    log_trace("New target region: x: %d ; y: %d ; w: %d ; h: %d", new_x, new_y, new_width, new_height);
 
+    log_trace("=== CROP GoToCameraListMode");
     select_mode (viewer, TRN_VIEWER_MODE_CAMERA_LIST);
 
-    g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_block (viewer->camera_height, viewer->camera_height_changed);
-
-    // Setting the range to be sure that the new values will be accepted.
-    // This is of no consequence since these ranges are redefined after in update_camera_region (called by camera_region_cb)
-    gtk_spin_button_set_range (GTK_SPIN_BUTTON(viewer->camera_width), 0, new_width + arv_camera_get_width_increment (viewer->camera, NULL));
-    gtk_spin_button_set_range (GTK_SPIN_BUTTON(viewer->camera_height), 0, new_height + arv_camera_get_height_increment (viewer->camera, NULL));
-    gtk_spin_button_set_range (GTK_SPIN_BUTTON (viewer->camera_x), 0, new_x + arv_camera_get_x_offset_increment (viewer->camera, NULL));
-    gtk_spin_button_set_range (GTK_SPIN_BUTTON(viewer->camera_y), 0, new_y + arv_camera_get_y_offset_increment (viewer->camera, NULL));
-
+    log_trace("=== CROP ChangeWidth");
     gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_width), new_width);
+    log_trace("=== CROP ChangeHeight");
     gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_height), new_height);
+    log_trace("=== CROP ChangeX");
     gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_x), new_x);
+    log_trace("=== CROP ChangeY");
     gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_y), new_y);
 
-    g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_unblock (viewer->camera_height, viewer->camera_height_changed);
-
     // DEFAULT ROI
+    log_trace("=== CROP UpdateROI");
     viewer->roi_x = 0;
     viewer->roi_y = 0;
     viewer->roi_w = new_width;
@@ -252,13 +241,12 @@ void crop_to_roi(LrdViewer *viewer) {
     if (is_roi_possible(viewer))
         viewer->show_roi = TRUE;
 
-    camera_region_cb(NULL, viewer);
-
+    log_trace("=== CROP BackToVideoMode");
     select_mode (viewer, TRN_VIEWER_MODE_VIDEO);
 
     apply_max_frame_rate_if_wanted (NULL, viewer);
 
-    log_trace("=== End CROP");
+    log_trace("====== CROP End");
 }
 
 void see_whole_field_of_view(LrdViewer *viewer) {
