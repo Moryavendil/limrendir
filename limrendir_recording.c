@@ -119,13 +119,16 @@ void close_files() {
 }
 
 void write_meta(LrdViewer *viewer) {
+    int x_offset, y_offset, width, height;
+    arv_camera_get_region (viewer->camera, &x_offset, &y_offset, &width, &height, NULL);
 
     fprintf(metaFile, "usingROI=%s\n", viewer->show_roi ? "true" : "false");
-    fprintf(metaFile, "subRegionX=%d\n", viewer->roi_x);
-    fprintf(metaFile, "subRegionY=%d\n", viewer->roi_y);
-    fprintf(metaFile, "subRegionWidth=%d\n", viewer->roi_w);
-    fprintf(metaFile, "subRegionHeight=%d\n", viewer->roi_h);
+    fprintf(metaFile, "subRegionX=%d\n", x_offset);
+    fprintf(metaFile, "subRegionY=%d\n", y_offset);
+    fprintf(metaFile, "subRegionWidth=%d\n", width);
+    fprintf(metaFile, "subRegionHeight=%d\n", height);
     fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
+    fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
     fprintf(metaFile, "captureFrequency=%f\n", arv_camera_get_frame_rate(viewer->camera, NULL));
     fprintf(metaFile, "captureExposureTime=%f\n", arv_camera_get_exposure_time(viewer->camera, NULL));
     fprintf(metaFile, "captureProg=\"limrendir version %s\"\n", "lol who knows");
@@ -1367,6 +1370,9 @@ gboolean start_recording (LrdViewer *viewer) {
     } else {
         int width, height;
         arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+        if (width * height != arv_camera_get_payload (viewer->camera, NULL)) {
+            log_warning("Discrepency between buffer predicted size and payload !");
+        }
         buffer_size = width * height;
     }
     log_debug("Size of one buffer: %zu bytes (%zu kB)", buffer_size, buffer_size / (1 << 10));
@@ -1375,6 +1381,7 @@ gboolean start_recording (LrdViewer *viewer) {
         n_buffers = 10;
     }
     log_debug("Number of buffers: %u", n_buffers);
+    log_debug("Size of all buffers stack: %u", n_buffers*buffer_size);
 
     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton))) {
         // user-controlled mode
