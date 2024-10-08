@@ -458,6 +458,9 @@ gboolean is_buffer_successful(ArvBuffer *buffer) {
             break;
         case ARV_BUFFER_STATUS_SIZE_MISMATCH:
             buffer_status_message = "The received image didn't fit in the buffer data space";
+            log_warning("(X) Buffer unsuccessful: Buffer %d x %d = %d.", arv_buffer_get_image_width(buffer),
+                        arv_buffer_get_image_height(buffer),
+                        arv_buffer_get_image_width(buffer)*arv_buffer_get_image_height(buffer));
             break;
         case ARV_BUFFER_STATUS_FILLING:
             buffer_status_message = "The image is currently being filled";
@@ -469,8 +472,8 @@ gboolean is_buffer_successful(ArvBuffer *buffer) {
             buffer_status_message = "Unrepertoried buffer status";
             break;
     }
-    fprintf(stderr, "(X) Buffer unsuccessful: %s.\n", buffer_status_message);
-//    log_warning("(X) Buffer unsuccessful: %s.", buffer_status_message);
+//    fprintf(stderr, "(X) Buffer unsuccessful: %s.\n", buffer_status_message);
+    log_warning("(X) Buffer unsuccessful: %s.", buffer_status_message);
 
     return FALSE;
 }
@@ -778,6 +781,8 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     for (unsigned i = 0; i < n_buffers; i++) {
         arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
     }
+
+    log_warning("Buffer payload %d .", arv_camera_get_payload (viewer->camera, NULL));
 
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (record_buffer), viewer);
 
