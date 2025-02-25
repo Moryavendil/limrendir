@@ -776,6 +776,51 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
         log_info("This Aravis stream is not a GigE Vision stream. Some properties could not be set.");
     }
 
+
+        log_debug("We try this anyway");
+
+        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
+        if (viewer->auto_socket_buffer) {
+            g_object_set(viewer->stream,
+                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+                         "socket-buffer-size", 0,
+                         NULL);
+        } else {
+            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
+        }
+
+        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
+        if (!viewer->packet_resend) {
+            g_object_set (viewer->stream,
+                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+                          NULL);
+        }
+
+        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
+        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
+        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
+
+        g_object_set (viewer->stream,
+                      "initial-packet-timeout", initial_packet_timeout,
+                      "packet-timeout", packet_timeout,
+                      "frame-retention", frame_retention,
+                      NULL);
+
+
+        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
+                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
+        log_debug("Packet timeout: %u us %s", packet_timeout,
+                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
+        log_debug("Frame retention: %u us %s", frame_retention,
+                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
+
+
     // Add buffers
     payload = arv_camera_get_payload (viewer->camera, NULL);
     for (unsigned i = 0; i < n_buffers; i++) {
@@ -1143,6 +1188,7 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     } else {
         log_info("This Aravis stream is not a GigE Vision stream. Some properties could not be set.");
     }
+
 
     // Add buffers
     payload = arv_camera_get_payload (viewer->camera, NULL);
