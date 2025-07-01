@@ -122,16 +122,30 @@ void write_meta(LrdViewer *viewer) {
     int x_offset, y_offset, width, height;
     arv_camera_get_region (viewer->camera, &x_offset, &y_offset, &width, &height, NULL);
 
+    fprintf(metaFile, "cameraRegionX=%d\n", x_offset);
+    fprintf(metaFile, "cameraRegionY=%d\n", y_offset);
+    fprintf(metaFile, "cameraRegionWidth=%d\n", width);
+    fprintf(metaFile, "cameraRegionHeight=%d\n", height);
     fprintf(metaFile, "usingROI=%s\n", viewer->show_roi ? "true" : "false");
+    fprintf(metaFile, "viewerRegionX=%d\n", viewer->roi_x);
+    fprintf(metaFile, "viewerRegionY=%d\n", viewer->roi_y);
+    fprintf(metaFile, "viewerRegionWidth=%d\n", viewer->roi_w);
+    fprintf(metaFile, "viewerRegionHeight=%d\n", viewer->roi_h);
+    fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
+    fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
+    fprintf(metaFile, "captureFrequency=%f\n", arv_camera_get_frame_rate(viewer->camera, NULL));
+    fprintf(metaFile, "autoExposureTime=%u\n", arv_camera_get_exposure_time_auto(viewer->camera, NULL));
+    fprintf(metaFile, "captureExposureTime=%f\n", arv_camera_get_exposure_time(viewer->camera, NULL));
+    fprintf(metaFile, "autoGain=%u\n", arv_camera_get_gain_auto(viewer->camera, NULL));
+    fprintf(metaFile, "captureGain=%f\n", arv_camera_get_gain(viewer->camera, NULL));
+    fprintf(metaFile, "autoBlackLevel=%u\n", arv_camera_get_black_level_auto(viewer->camera, NULL));
+    fprintf(metaFile, "captureBlackLevel=%f\n", arv_camera_get_black_level(viewer->camera, NULL));
+    fprintf(metaFile, "captureProg=\"Limrendir version %s\"\n", LIMRENDIR_VERSION);
+    fprintf(metaFile, "xxxxx_legacy_xxxxx=0\n", LIMRENDIR_VERSION);
     fprintf(metaFile, "subRegionX=%d\n", x_offset);
     fprintf(metaFile, "subRegionY=%d\n", y_offset);
     fprintf(metaFile, "subRegionWidth=%d\n", width);
     fprintf(metaFile, "subRegionHeight=%d\n", height);
-    fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
-    fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
-    fprintf(metaFile, "captureFrequency=%f\n", arv_camera_get_frame_rate(viewer->camera, NULL));
-    fprintf(metaFile, "captureExposureTime=%f\n", arv_camera_get_exposure_time(viewer->camera, NULL));
-    fprintf(metaFile, "captureProg=\"limrendir version %s\"\n", "lol who knows");
 }
 
 // FILENAME CONFIRMATION
