@@ -10,6 +10,8 @@
 
 G_BEGIN_DECLS
 
+#define LIMRENDIR_VERSION "0.6"
+
 typedef struct	_LrdViewer	LrdViewer;
 
 #define ARV_TYPE_VIEWER             (arv_viewer_get_type ())
