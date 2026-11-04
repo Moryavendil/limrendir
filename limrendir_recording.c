@@ -1400,16 +1400,11 @@ gboolean start_recording (LrdViewer *viewer) {
     // Change the buffer size
     log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
 
-    size_t buffer_size = 0;
-    if (viewer->show_roi) {
-        buffer_size = viewer->roi_w * viewer->roi_h;
-    } else {
-        int width, height;
-        arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-        if (width * height != arv_camera_get_payload (viewer->camera, NULL)) {
-            log_warning("Discrepency between buffer predicted size and payload !");
-        }
-        buffer_size = width * height;
+    // Each buffer holds a full frame as sent by the camera (the payload), whatever the ROI or the pixel format
+    size_t buffer_size = arv_camera_get_payload (viewer->camera, NULL);
+    if (buffer_size == 0) {
+        log_warning("Could not get the frame size from the camera.");
+        buffer_size = 1;
     }
     log_debug("Size of one buffer: %zu bytes (%zu kB)", buffer_size, buffer_size / (1 << 10));
     n_buffers = mem_for_buffers / buffer_size;
@@ -1417,7 +1412,7 @@ gboolean start_recording (LrdViewer *viewer) {
         n_buffers = 10;
     }
     log_debug("Number of buffers: %u", n_buffers);
-    log_debug("Size of all buffers stack: %u", n_buffers*buffer_size);
+    log_debug("Size of all buffers stack: %zu bytes (%zu MB)", n_buffers * buffer_size, n_buffers * buffer_size / (1 << 20));
 
     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton))) {
         // user-controlled mode
