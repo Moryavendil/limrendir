@@ -1011,7 +1011,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             queue = gst_element_factory_make ("queue", NULL);
             x264enc = gst_element_factory_make ("x264enc", NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
-            GstPad *mp4mux_sink_pad = gst_element_get_request_pad (flvmux, "video");
+            GstPad *mp4mux_sink_pad = gst_element_get_request_pad (mp4mux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
