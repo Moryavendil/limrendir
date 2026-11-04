@@ -4,6 +4,7 @@
 #include <gst/video/videooverlay.h>
 #include <arv.h>
 #include <limrendir.h>
+#include <arvgvstreamprivate.h>
 #include <logroutines.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>  // for GDK_WINDOW_XID
@@ -330,14 +331,72 @@ ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback)
     return stream;
 }
 
+// Sets the stream properties (socket buffer size, packet resend, timeouts, frame retention time) chosen on the
+// command line. They only exist for GV (GigE Vision) streams: nothing to do for USB3 Vision or fake cameras.
+void configure_stream (LrdViewer *viewer)
+{
+    if (ARV_IS_GV_STREAM (viewer->stream)) {
+
+        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
+        if (viewer->auto_socket_buffer) {
+            g_object_set(viewer->stream,
+                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+                         "socket-buffer-size", 0,
+                         NULL);
+        } else {
+            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
+        }
+
+        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
+        if (!viewer->packet_resend) {
+            g_object_set (viewer->stream,
+                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+                          NULL);
+        }
+
+        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
+        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
+        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
+
+        g_object_set (viewer->stream,
+                      "initial-packet-timeout", initial_packet_timeout,
+                      "packet-timeout", packet_timeout,
+                      "frame-retention", frame_retention,
+                      NULL);
+
+
+        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
+                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
+        log_debug("Packet timeout: %u us %s", packet_timeout,
+                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
+        log_debug("Frame retention: %u us %s", frame_retention,
+                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
+    } else {
+        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
+        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
+    }
+}
+
+// Gives n new buffers, each holding one full frame, to the stream
+void push_new_buffers (LrdViewer *viewer, unsigned n)
+{
+    unsigned payload = arv_camera_get_payload (viewer->camera, NULL);
+    for (unsigned i = 0; i < n; i++)
+        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+}
+
 gboolean start_video (LrdViewer *viewer)
 {
     log_debug("Start the video stream.");
     GstElement *videoconvert;
     GstCaps *caps;
     ArvPixelFormat pixel_format;
-    unsigned payload;
-    unsigned i;
     gint width, height;
     const char *caps_string;
 
@@ -351,27 +410,10 @@ gboolean start_video (LrdViewer *viewer)
     if (viewer->stream == NULL)
         return FALSE;
 
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-        if (viewer->auto_socket_buffer)
-            g_object_set (viewer->stream,
-                          "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                          "socket-buffer-size", 0,
-                          NULL);
-        if (!viewer->packet_resend)
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", (unsigned) viewer->initial_packet_timeout * 1000,
-                      "packet-timeout", (unsigned) viewer->packet_timeout * 1000,
-                      "frame-retention", (unsigned) viewer->frame_retention * 1000,
-                      NULL);
-    }
+    configure_stream (viewer);
 
     arv_stream_set_emit_signals (viewer->stream, TRUE);
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (i = 0; i < n_buffers_streaming; i++)
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    push_new_buffers (viewer, n_buffers_streaming);
 
     set_camera_control_widgets(viewer);
     set_acquisition_settings_widgets(viewer);

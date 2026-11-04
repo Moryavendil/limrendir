@@ -474,6 +474,12 @@ long clock_millis(struct timespec t);
 /* time difference in milliseconds */
 long clock_diff_millis(struct timespec t1, struct timespec t2);
 
+// Applies the GigE Vision settings chosen on the command line to the stream (nothing to do for other cameras)
+void configure_stream (LrdViewer *viewer);
+
+// Gives n new full-frame buffers to the stream
+void push_new_buffers (LrdViewer *viewer, unsigned n);
+
 // Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure
 ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback);
 

@@ -767,7 +767,6 @@ static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *vi
 // sets up the arv stream we are gonna record from
 static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
@@ -788,61 +787,10 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
         return FALSE;
     }
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
+    configure_stream (viewer);
 
 
-        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (record_buffer), viewer);
 
@@ -1154,68 +1102,16 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
 static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
 
     // Create the stream
     viewer->stream = create_camera_stream (viewer, stream_record_cb);
     if (viewer->stream == NULL)
         return FALSE;
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
+    configure_stream (viewer);
 
 
-        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (forward_buffer_to_gst), viewer);
 
@@ -1238,7 +1134,6 @@ static gboolean bourrin_recording(void *data)
     LrdViewer *viewer = data;
 
     log_debug("Preparing the acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
@@ -1262,60 +1157,9 @@ static gboolean bourrin_recording(void *data)
         return FALSE;
     }
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
+    configure_stream (viewer);
 
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
-
-
-        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     arv_stream_set_emit_signals (viewer->stream, FALSE);
 
