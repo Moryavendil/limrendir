@@ -374,7 +374,7 @@ void toggle_grid(LrdViewer *viewer) {
     } else if (viewer->grid_type == GRID_VERTICAL) {
         viewer->grid_type = GRID_NOGRID;
     }
-    log_debug("Switched to a new grid : %d.", viewer->grid_type);
+    log_debug("Switched to a new grid : %d.", (int) viewer->grid_type);
 
     const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
     if (pixel_format != ARV_PIXEL_FORMAT_MONO_8) {

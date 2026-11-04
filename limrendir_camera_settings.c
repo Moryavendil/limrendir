@@ -596,7 +596,7 @@ gboolean best_exposure_search_next_step(void *data)
 {
     LrdViewer *viewer = data;
 
-    log_trace("Next step of the search", current_exposure_nb);
+    log_trace("Next step of the search (exposure time %f us)", current_exposure_nb);
     log_trace("\tExposure time: %f us", arv_camera_get_exposure_time (viewer->camera, NULL));
     log_trace("\tFrame rate: %f FPS", arv_camera_get_frame_rate (viewer->camera, NULL));
     uint8_t max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);

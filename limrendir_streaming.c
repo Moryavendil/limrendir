@@ -379,11 +379,11 @@ gboolean start_video (LrdViewer *viewer)
 
     caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
     if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     }

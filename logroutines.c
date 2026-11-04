@@ -139,7 +139,7 @@ void log_initialize(LogLevel logging_level) {
     if (log_file != NULL)
         log_info("Logs for this session are saved in '%s'", log_filename);
 
-    log_trace("Log level: %d", log_level);
+    log_trace("Log level: %d", (int) log_level);
 }
 
 void log_terminate() {

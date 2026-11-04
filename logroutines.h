@@ -27,13 +27,13 @@ extern char *log_filename;
 extern FILE *log_file;
 extern LogLevel log_level;
 
-void log_trace(const char *fmt, ...);
-void log_debug(const char *fmt, ...);
-void log_info(const char *fmt, ...);
-void log_warning(const char *fmt, ...);
-void log_error(const char *fmt, ...);
+void log_trace(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
+void log_debug(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
+void log_info(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
+void log_warning(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
+void log_error(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
 
-void log_write(LogLevel level, const char *fmt, ...);
+void log_write(LogLevel level, const char *fmt, ...) G_GNUC_PRINTF(2, 3);
 
 void log_initialize(LogLevel logging_level);
 void log_terminate();

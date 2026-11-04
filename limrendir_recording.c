@@ -286,7 +286,7 @@ char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
 RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *filename;
     if (viewer->dataset_name == NULL) {
-        log_debug("No name specified, we need to set one.", viewer->dataset_name);
+        log_debug("No name specified, we need to set one.");
         filename = obtain_new_original_filename(viewer);
     } else {
         // Is this a valid copy method ?
@@ -599,7 +599,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
     } else if (n_output_buffers > 1) {
         fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
         if (n_output_buffers > n_buffers/2) {
-            fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%d)\n", n_output_buffers, n_buffers);
+            fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%u)\n", n_output_buffers, n_buffers);
         }
     }
 
@@ -627,7 +627,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         running_number = frame_numbering_next(&record_numbering, arv_buffer_get_frame_id(buffer));
 
         // write stamps data
-        fprintf(stampFile, "%d\t%ld\t%ld\n",
+        fprintf(stampFile, "%u\t%" G_GUINT64_FORMAT "\t%ld\n",
                 running_number,                     // running frame number, guint32
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
                 clock_millis(clock_now_recording));        // computer time (ms)
@@ -684,11 +684,11 @@ static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *vi
     pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
     caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
     if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     }
@@ -824,11 +824,11 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
 
 
         const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
         log_debug("Packet timeout: %u us %s", packet_timeout,
@@ -900,11 +900,11 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
     caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
     if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
+        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
         stop_video (viewer);
         return FALSE;
     }
@@ -1189,11 +1189,11 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
 
 
         const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
         log_debug("Packet timeout: %u us %s", packet_timeout,
@@ -1290,11 +1290,11 @@ static gboolean bourrin_recording(void *data)
 
 
         const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
         const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
         log_debug("Packet timeout: %u us %s", packet_timeout,
@@ -1364,7 +1364,7 @@ static gboolean bourrin_recording(void *data)
         running_number = frame_numbering_next(&burst_numbering, arv_buffer_get_frame_id(buffer));
 
         // write stamps data
-        fprintf(stampFile, "%d\t%ld\t%ld\n",
+        fprintf(stampFile, "%u\t%" G_GUINT64_FORMAT "\t%ld\n",
                 running_number,                              // running frame number, guint32
                 arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
                 clock_millis(clock_now_recording));       // computer time (ms)
