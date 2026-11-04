@@ -1301,72 +1301,75 @@ static gboolean bourrin_recording(void *data)
     uint8_t *image_data;
     size_t size;
 
-    gint n_input_buffers, n_output_buffers;
+    // Maximum time to wait for a frame before giving up: 10 s, or 10 frame periods if that is longer
+    // (very low frame rates), so that a camera that stops sending cannot hang the application.
+    double frame_rate = get_actual_frame_rate(viewer);
+    guint64 pop_timeout_us = 10 * G_USEC_PER_SEC;
+    if (frame_rate > 0 && 10. / frame_rate * G_USEC_PER_SEC > pop_timeout_us)
+        pop_timeout_us = (guint64) (10. / frame_rate * G_USEC_PER_SEC);
 
-    gboolean record_this_buffer;
+    // Only successful frames count towards the number of frames to record
+    int n_recorded_frames = 0;
+    int n_failed_frames = 0;
 
-    for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
+    while (n_recorded_frames < number_of_frames_to_record) {
 
-        arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
-//        if (n_output_buffers > 4*n_buffers/5) {
-//            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", 100*((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
-//        }
-
-        record_this_buffer = TRUE;
-
-        buffer = arv_stream_pop_buffer(viewer->stream);
+        buffer = arv_stream_timeout_pop_buffer(viewer->stream, pop_timeout_us);
 
         // Get the time of the grab
         clock_gettime(CLOCK_MONOTONIC, &clock_now_recording);
 
         // Check that we did indeed grab something
         if (buffer == NULL) {
-            fprintf(stderr, "O\n");
-            record_this_buffer = FALSE;
+            log_warning("No frame received for %.1f s: burst aborted after %d frames out of %d.",
+                        (double) pop_timeout_us / G_USEC_PER_SEC, n_recorded_frames, number_of_frames_to_record);
+            break;
         }
 
-        // Check if the buffer was successful
+        // Check if the buffer was successful. If not, give it back: it does not count.
         if (!is_buffer_successful(buffer)) {
-            record_this_buffer = FALSE;
+            n_failed_frames++;
+            arv_stream_push_buffer(viewer->stream, buffer);
+            continue;
         }
 
-        if (record_this_buffer) {
+        running_number = frame_numbering_next(&burst_numbering, arv_buffer_get_frame_id(buffer));
 
-            running_number = frame_numbering_next(&burst_numbering, arv_buffer_get_frame_id(buffer));
+        // write stamps data
+        fprintf(stampFile, "%d\t%ld\t%ld\n",
+                running_number,                              // running frame number, guint32
+                arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
+                clock_millis(clock_now_recording));       // computer time (ms)
 
-            // write stamps data
-            fprintf(stampFile, "%d\t%ld\t%ld\n",
-                    running_number,                              // running frame number, guint32
-                    arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
-                    clock_millis(clock_now_recording));       // computer time (ms)
-
-            // write image data
-            image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-            if (viewer->show_roi) {
-                int width, height;
-                arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-                if (size == viewer->roi_w * viewer->roi_h) {
-                    // The roi is useless
-                    fwrite(image_data, 1, size, imageFile);
-                } else if (width == viewer->roi_w) {
-                    // The roi is used to constrain only in y
-                    size_t offset = viewer->roi_y * width;
-                    fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
-                } else {
-                    // general case
-                    for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                        size_t offset = i_line * width + viewer->roi_x;
-                        fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
-                    }
-                }
-            } else {
+        // write image data
+        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
+        if (viewer->show_roi) {
+            int width, height;
+            arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
+            if (size == viewer->roi_w * viewer->roi_h) {
+                // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
+            } else if (width == viewer->roi_w) {
+                // The roi is used to constrain only in y
+                size_t offset = viewer->roi_y * width;
+                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
+            } else {
+                // general case
+                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
+                    size_t offset = i_line * width + viewer->roi_x;
+                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
+                }
             }
+        } else {
+            fwrite(image_data, 1, size, imageFile);
         }
+        n_recorded_frames++;
 
         // Push back the buffer
         arv_stream_push_buffer(viewer->stream, buffer);
     }
+
+    log_info("Burst: %d frames recorded (%d failed frames skipped).", n_recorded_frames, n_failed_frames);
 
     stop_recording (viewer);
     gtk_widget_set_sensitive(viewer->help_button, TRUE);
