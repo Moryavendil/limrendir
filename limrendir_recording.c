@@ -2,6 +2,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <arv.h>
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
@@ -26,9 +27,13 @@
 // declare files
 // Number of buffers in the buffer queue (more is better)
 unsigned n_buffers = 250;
-// Memory allowed for buffers, in bytes
-// The max output of a GiGE link is 118 MB/s, so we put enough buffers for 3 seconds of recording, which should be enough.
-size_t mem_for_buffers = 3 * 118 * (1 << 20);
+// Memory allowed for buffers: enough to hold this many seconds of frames at the actual data rate
+// (frame size x actual frame rate), so that the disk can stall that long without losing frames.
+const double buffered_seconds = 3.;
+// ... but never less than this (3 s of a GigE link, 118 MB/s), in bytes
+const size_t min_mem_for_buffers = 3 * 118 * (1 << 20);
+// ... and never more than this fraction of the physical memory of the computer
+const double max_mem_for_buffers_fraction = 0.25;
 // Number of FPS to display while recording (less is better)
 gint display_fps_recording = 10;
 // Time since last update
@@ -1397,9 +1402,6 @@ gboolean start_recording (LrdViewer *viewer) {
     // Check that we can record
     viewer->record_type = confirm_dataset_name(viewer);
 
-    // Change the buffer size
-    log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
-
     // Each buffer holds a full frame as sent by the camera (the payload), whatever the ROI or the pixel format
     size_t buffer_size = arv_camera_get_payload (viewer->camera, NULL);
     if (buffer_size == 0) {
@@ -1407,6 +1409,22 @@ gboolean start_recording (LrdViewer *viewer) {
         buffer_size = 1;
     }
     log_debug("Size of one buffer: %zu bytes (%zu kB)", buffer_size, buffer_size / (1 << 10));
+
+    // Change the buffer size
+    size_t mem_for_buffers = (size_t) (buffer_size * get_actual_frame_rate (viewer) * buffered_seconds);
+    if (mem_for_buffers < min_mem_for_buffers)
+        mem_for_buffers = min_mem_for_buffers;
+    long n_pages = sysconf (_SC_PHYS_PAGES);
+    long page_size = sysconf (_SC_PAGE_SIZE);
+    if (n_pages > 0 && page_size > 0) {
+        size_t max_mem_for_buffers = (size_t) ((double) n_pages * page_size * max_mem_for_buffers_fraction);
+        if (mem_for_buffers > max_mem_for_buffers) {
+            log_warning("Not enough memory to buffer %g s of recording: limited to %zu MB.",
+                        buffered_seconds, max_mem_for_buffers / (1 << 20));
+            mem_for_buffers = max_mem_for_buffers;
+        }
+    }
+    log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
     n_buffers = mem_for_buffers / buffer_size;
     if (n_buffers < 10) {
         n_buffers = 10;
