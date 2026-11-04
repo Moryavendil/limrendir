@@ -613,10 +613,15 @@ double measure_mean_max_pixel_value (LrdViewer *viewer) {
         last_frame = buffer;
     }
 
-    // Display the last frame (the display gives the buffer back to the stream when done)
-    g_clear_object (&viewer->last_buffer);
-    viewer->last_buffer = g_object_ref (last_frame);
-    gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (last_frame, viewer->stream, viewer));
+    // Display the last frame (the display gives the buffer back to the stream when done), unless the stream
+    // has no buffer left
+    if (stream_can_spare_buffer (viewer->stream)) {
+        g_clear_object (&viewer->last_buffer);
+        viewer->last_buffer = g_object_ref (last_frame);
+        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (last_frame, viewer->stream, viewer));
+    } else {
+        arv_stream_push_buffer (viewer->stream, last_frame);
+    }
 
     log_trace("\t%d frames measured", n_frames);
     return sum_of_max / n_frames;

@@ -21,7 +21,7 @@ top of `limrendir.h`).
 | `738bd0f44` | 2023-02-10 | Hide binning or offset controls if not available | 🔴 pending | Limrendir already checks availability in `limrendir_modechange.c` (sensitivity); compare and hide instead. | |
 | `7bfa356dd` | 2023-02-10 | Make the initial window a bit bigger | 🟢 skipped | Limrendir has its own layout. | |
 | `6e1311b8b` | 2023-07-25 | Back to 10 buffers in the stream queue | 🟢 covered | Limrendir uses its own buffer counts (`n_buffers_streaming`, `n_buffers`). | |
-| `0b48b0ea9` | 2023-07-25 | Ensure there are still available buffers | 🔴 pending | Skip displaying a buffer when the stream thread would run out of them. Small. | |
+| `0b48b0ea9` | 2023-07-25 | Ensure there are still available buffers | 🟢 ported | `stream_can_spare_buffer`, with the current upstream condition (counts the buffer being filled on 0.10). Used for the live display, the gevCapture-style recording display and the exposure search. Not for the GStreamer recordings (MP4...), where every frame must go to GStreamer. | |
 | `051ccee8e` | 2023-08-01 | Application id consistency fix | 🟢 skipped | Aravis-specific id and appdata. | |
 | `ba0d728d0` | 2023-09-20 | Use representation for exposure time and gain widgets | 🔴 pending | Port together with `9371337a2`, `2a29f8a83`, `85e5a2fd4` (camera settings). | |
 | `51fa0f73d` | 2023-11-20 | New `arv_stream_get_n_owned_buffers` | 🟢 covered | Compatibility macro in `limrendir.h`. | |

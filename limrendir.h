@@ -480,6 +480,7 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
 void configure_stream (LrdViewer *viewer);
 
 // Gives n new full-frame buffers to the stream
+gboolean stream_can_spare_buffer (ArvStream *stream);
 void push_new_buffers (LrdViewer *viewer, unsigned n);
 
 // Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure

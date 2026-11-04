@@ -264,7 +264,8 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     } else {
 
         // Push back the buffer (in the right queue)
-        if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000) {
+        if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000
+            && stream_can_spare_buffer (stream)) {
             clock_last_snapshot_streaming = clock_now_streaming;
             g_clear_object(&viewer->last_buffer);
             viewer->last_buffer = g_object_ref(arv_buffer);
@@ -342,6 +343,23 @@ void configure_stream (LrdViewer *viewer)
         // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
         log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
     }
+}
+
+// Tells whether the stream still owns a buffer, after one was popped (from aravis 0b48b0ea9).
+// A buffer sent to the display is only given back to the stream when GStreamer is done with it. If the display
+// is too slow, all the buffers end up in the GStreamer pipeline and the stream thread has none left to fill, so
+// frames are lost. A buffer must not be sent to the display when it is the last one.
+gboolean stream_can_spare_buffer (ArvStream *stream)
+{
+    gint n_input_buffers, n_output_buffers;
+    gint n_buffer_filling = 0;
+
+#if ARAVIS_CHECK_VERSION(0, 9, 0)
+    arv_stream_get_n_owned_buffers (stream, &n_input_buffers, &n_output_buffers, &n_buffer_filling);
+#else
+    arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
+#endif
+    return n_input_buffers + n_output_buffers + n_buffer_filling > 0;
 }
 
 // Gives n new buffers, each holding one full frame, to the stream

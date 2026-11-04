@@ -659,7 +659,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
             clock_last_snapshot_recording = clock_now_recording;
             show_this_frame = TRUE;
         }
-        if (show_this_frame) {
+        // (if the stream has no buffer left, the frame is not shown and the next one will be)
+        if (show_this_frame && stream_can_spare_buffer (stream)) {
             g_clear_object(&viewer->last_buffer);
             viewer->last_buffer = g_object_ref(buffer);
             gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(buffer, stream, viewer));
