@@ -798,8 +798,6 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
         arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
     }
 
-    log_warning("Buffer payload %d .", arv_camera_get_payload (viewer->camera, NULL));
-
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (record_buffer), viewer);
 
     arv_stream_set_emit_signals (viewer->stream, TRUE);
