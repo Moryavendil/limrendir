@@ -20,10 +20,11 @@ Also, because Aravis relies on it you have to install [meson](https://mesonbuild
 
 Then [install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html) (version >= 0.8). 
 
-Then download this project and in the main directory type
+Then download this project and compile it:
 
-    cmake .
-    make
+    git clone git@github.com:Moryavendil/limrendir.git
+    cd limrendir
+    cmake . && make
     ./limrendir
 
 Use option `--help` to know about the available options.
@@ -47,17 +48,17 @@ During recording there can be dropped frames, i.e. frames that were not saved fo
 
 ### Upgrade the permissions given to limrendir
 * Run limrendir as administrator (using `sudo`), which will allow to make the Aravis thread relatime.
-* Use packet sockets: `sudo setcap cap_net_raw+ep limrendir`
+* For Ethernet cameras, use packet sockets: `sudo setcap cap_net_raw+ep limrendir`
 * Nice the program: `sudo nice -5 ./limrendir`
 
 ### Use higher timeouts
-* If the dropped frames comes from timeouts being reached (usually indicated by the ARV_BUFFER_STATUS_TIMEOUT buffer state), try using higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
+* For Ethernet cameras, if the dropped frames comes from timeouts being reached (usually indicated by the ARV_BUFFER_STATUS_TIMEOUT buffer state), try using higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
 
 ### Limit other usages of CPU resources
  * If your computer is a 2000's toaster with less than 2 GB of RAM, try buying another one
  * Limitate usage of CPU-heavy and RAM-guzzling applications such as Chrome
 
-See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html).
+See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html) and [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html).
 
 
 ## About the code
@@ -70,8 +71,6 @@ A consequent part of the code is directly burrowed or adapted from Aravis Viewer
  * Recording capabilities, with different formats supported (at term).
 
 I am not a professional software developer so the code quality might not be perfect. But hey, it works !
-
-Also there is a `GObject error` when launching the software. I don't know why. It doesn't seem to inhibit anything so I didn't search too hard. Any patch welcome :)
 
 
 ## To-Do list
@@ -89,4 +88,4 @@ GNU something.
 
 ## Why the strange-sounding name ?
 
-Limrendir is a sindarin (middle-earth elvish) name meaning "the one who swiftly remembers what he looks at". That seemed appropriate for a camera recording software ! Many thanks to Elaran for coining the term.
+Limrendir is a sindarin (middle-earth elvish) name meaning "the one who swiftly remembers what he looks at". That seemed appropriate for a camera recording software ! Thanks to Elaran for coining the term.
