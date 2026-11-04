@@ -185,40 +185,43 @@ apply_gc_options(LrdViewer *viewer) {
 
     const gboolean there_is_a_camera = smart_camera_selection(viewer);
 
-    g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_block (viewer->camera_height, viewer->camera_height_changed);
-
-    if (viewer->gc_option_x_offset > -1)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_x), viewer->gc_option_x_offset);
-    if (viewer->gc_option_y_offset > -1)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_y), viewer->gc_option_y_offset);
-    if (viewer->gc_option_width > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_width), viewer->gc_option_width);
-    if (viewer->gc_option_height > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_height), viewer->gc_option_height);
-
-    g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_unblock (viewer->camera_height, viewer->camera_height_changed);
-
-    g_signal_handler_block (viewer->camera_binning_x, viewer->camera_binning_x_changed);
-    g_signal_handler_block (viewer->camera_binning_y, viewer->camera_binning_y_changed);
-
-    if (viewer->gc_option_horizontal_binning > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_x), viewer->gc_option_horizontal_binning);
-    if (viewer->gc_option_vertical_binning > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_y), viewer->gc_option_vertical_binning);
-
-    g_signal_handler_unblock (viewer->camera_binning_x, viewer->camera_binning_x_changed);
-    g_signal_handler_unblock (viewer->camera_binning_y, viewer->camera_binning_y_changed);
-
     // this only works if a camera is selected
     if (there_is_a_camera) {
-        camera_region_cb(NULL, viewer);
+        // Binning first: it changes the possible region. Each callback reloads all the region and binning spin
+        // buttons from the camera, so the region spin buttons are only set once the binning is applied.
+        g_signal_handler_block (viewer->camera_binning_x, viewer->camera_binning_x_changed);
+        g_signal_handler_block (viewer->camera_binning_y, viewer->camera_binning_y_changed);
+
+        if (viewer->gc_option_horizontal_binning > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_x), viewer->gc_option_horizontal_binning);
+        if (viewer->gc_option_vertical_binning > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_y), viewer->gc_option_vertical_binning);
+
+        g_signal_handler_unblock (viewer->camera_binning_x, viewer->camera_binning_x_changed);
+        g_signal_handler_unblock (viewer->camera_binning_y, viewer->camera_binning_y_changed);
+
         camera_binning_cb(NULL, viewer);
+
+        g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
+        g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
+        g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
+        g_signal_handler_block (viewer->camera_height, viewer->camera_height_changed);
+
+        if (viewer->gc_option_x_offset > -1)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_x), viewer->gc_option_x_offset);
+        if (viewer->gc_option_y_offset > -1)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_y), viewer->gc_option_y_offset);
+        if (viewer->gc_option_width > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_width), viewer->gc_option_width);
+        if (viewer->gc_option_height > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_height), viewer->gc_option_height);
+
+        g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
+        g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
+        g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);
+        g_signal_handler_unblock (viewer->camera_height, viewer->camera_height_changed);
+
+        camera_region_cb(NULL, viewer);
 
         // Exposure time
         if (viewer->gc_option_exposure_time_us != gc_option_exposure_time_us_default) {
