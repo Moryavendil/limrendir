@@ -987,6 +987,7 @@ static gboolean bourrin_recording(void *data)
         // Puts the interface back in its normal state
         stop_recording (viewer);
         gtk_widget_set_sensitive(viewer->help_button, TRUE);
+        gtk_widget_set_sensitive(viewer->record_button, TRUE);
         return FALSE;
     }
 
@@ -998,6 +999,7 @@ static gboolean bourrin_recording(void *data)
         // Closes the files and puts the interface back in its normal state
         stop_recording (viewer);
         gtk_widget_set_sensitive(viewer->help_button, TRUE);
+        gtk_widget_set_sensitive(viewer->record_button, TRUE);
         return FALSE;
     }
 
@@ -1094,6 +1096,7 @@ static gboolean bourrin_recording(void *data)
 
     stop_recording (viewer);
     gtk_widget_set_sensitive(viewer->help_button, TRUE);
+    gtk_widget_set_sensitive(viewer->record_button, TRUE);
 
     return FALSE;
 }
