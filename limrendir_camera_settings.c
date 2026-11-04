@@ -498,6 +498,8 @@ static int n_frames_nb;
 static int n_frames_to_skip_nb;
 static int phase_nb;
 static double min_exposure_nb, max_exposure_nb, current_exposure_nb;
+static double initial_exposure_nb;
+// Requested frame rate before the search (restored at the end; e.g. the maximum value in 'max frame rate' mode)
 static double initial_frame_rate;
 
 void initialize_best_exposure_search (LrdViewer *viewer) {
@@ -536,7 +538,26 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     apply_max_frame_rate_if_wanted(NULL, viewer);
 }
 
-uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
+// Waits for the next frame during the search. Returns NULL if the camera sends nothing for too long
+// (1 s plus two exposure times plus two frame periods), so that a stalled camera cannot hang the application.
+static ArvBuffer *pop_search_buffer (LrdViewer *viewer) {
+    double exposure_us = arv_camera_get_exposure_time (viewer->camera, NULL);
+    double frame_rate = get_actual_frame_rate (viewer);
+    double timeout_us = G_USEC_PER_SEC + 2 * exposure_us;
+    if (frame_rate > 0)
+        timeout_us += 2. / frame_rate * G_USEC_PER_SEC;
+    return arv_stream_timeout_pop_buffer (viewer->stream, (guint64) timeout_us);
+}
+
+// Stops the search when the camera does not send frames anymore, and puts the exposure time back
+static void abort_best_exposure_search (LrdViewer *viewer) {
+    log_warning("No frame received from the camera: best exposure search aborted, exposure time restored.");
+    arv_camera_set_exposure_time (viewer->camera, initial_exposure_nb, NULL);
+    finalize_best_exposure_search (viewer);
+}
+
+// Returns the maximum pixel value over n_frames frames (after skipping n_frames_to_skip), or -1 if the camera stalls
+int get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
     ArvStream *stream = viewer->stream;
     uint8_t max_pixel_value = 0;
 
@@ -549,7 +570,9 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
     i_frame = 0;
     while (i_frame < n_frames_to_skip) {
         // take a buffer
-        buffer = arv_stream_pop_buffer(stream);
+        buffer = pop_search_buffer(viewer);
+        if (buffer == NULL)
+            return -1;
 
         // Check if the buffer was successful
         if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
@@ -567,7 +590,9 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
     i_frame = 0;
     while (i_frame < n_frames) {
         // take a buffer
-        buffer = arv_stream_pop_buffer(stream);
+        buffer = pop_search_buffer(viewer);
+        if (buffer == NULL)
+            return -1;
 
         // Check if the buffer was successful
         if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
@@ -588,7 +613,7 @@ uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) 
         arv_stream_push_buffer(stream, buffer);
     }
 
-    log_debug("Max pixel value: %hhu (%d images skipped then %d images taken)", max_pixel_value, n_frames_to_skip, n_frames);
+    log_debug("Max pixel value: %d (%d images skipped then %d images taken)", (int) max_pixel_value, n_frames_to_skip, n_frames);
     return max_pixel_value;
 }
 
@@ -598,11 +623,19 @@ gboolean best_exposure_search_next_step(void *data)
 
     log_trace("Next step of the search (exposure time %f us)", current_exposure_nb);
     log_trace("\tExposure time: %f us", arv_camera_get_exposure_time (viewer->camera, NULL));
-    log_trace("\tFrame rate: %f FPS", arv_camera_get_frame_rate (viewer->camera, NULL));
-    uint8_t max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
+    log_trace("\tFrame rate: %f FPS", get_actual_frame_rate (viewer));
+    int max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
+    if (max_pixel_value < 0) {
+        abort_best_exposure_search(viewer);
+        return FALSE;
+    }
 
     // Display
-    ArvBuffer *buffer = arv_stream_pop_buffer(viewer->stream);
+    ArvBuffer *buffer = pop_search_buffer(viewer);
+    if (buffer == NULL) {
+        abort_best_exposure_search(viewer);
+        return FALSE;
+    }
     // Check if the buffer was successful
     if (arv_buffer_get_status(buffer) == ARV_BUFFER_STATUS_SUCCESS) {
         g_clear_object(&viewer->last_buffer);
@@ -692,17 +725,19 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
 
     phase_nb = 1;
     current_exposure_nb = arv_camera_get_exposure_time (viewer->camera, NULL);
+    initial_exposure_nb = current_exposure_nb;
     log_trace("Current exposure: %f us", current_exposure_nb);
 
     // start the shit
     initial_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    double time_per_frame = 1000 / initial_frame_rate;
+    // The step duration depends on the frame rate the camera actually delivers, not on the requested one
+    double time_per_frame = 1000 / get_actual_frame_rate (viewer);
     guint time_per_step = (uint) ((n_frames_nb + n_frames_to_skip_nb) * time_per_frame) + 50;
     if (time_per_step < 500) {
         time_per_step = 500;
     }
 
-    log_trace("Current frame rate: %f FPS (%f mSPF)", initial_frame_rate, time_per_frame);
+    log_trace("Current frame rate: %f FPS (%f mSPF)", get_actual_frame_rate (viewer), time_per_frame);
     log_trace("Number of steps: %d to skip, %d to measure", n_frames_to_skip_nb, n_frames_nb);
 
     log_debug("Time per step %u ms", time_per_step);

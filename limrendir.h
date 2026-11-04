@@ -438,7 +438,7 @@ void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
 
         void finalize_best_exposure_search (LrdViewer *viewer);
 
-        uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
+        int get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
 
 // The blocking version (simple but annoying)
         void best_exposure_search_blocking (LrdViewer *viewer);
