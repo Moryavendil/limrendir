@@ -1508,14 +1508,17 @@ gboolean stop_recording (LrdViewer *viewer) {
     if (ARV_IS_STREAM (viewer->stream))
         arv_stream_set_emit_signals (viewer->stream, FALSE);
 
-    // send end of stream signal. Important for certain formats (mp4 for example).
-    GstFlowReturn ret;
-    g_signal_emit_by_name (GST_APP_SRC (viewer->appsrc), "end-of-stream", &ret);
-
-//    if (GST_IS_PIPELINE (viewer->pipeline))
-//        gst_element_set_state (viewer->pipeline, GST_STATE_NULL);
-
     arv_camera_stop_acquisition (viewer->camera, NULL);
+
+    // Destroying the stream stops its thread and waits for it. This guarantees that no frame
+    // is still being written (record_buffer runs in that thread) when the files are closed below.
+    g_clear_object (&viewer->stream);
+
+    // send end of stream signal. Important for certain formats (mp4 for example).
+    if (GST_IS_APP_SRC (viewer->appsrc)) {
+        GstFlowReturn ret;
+        g_signal_emit_by_name (GST_APP_SRC (viewer->appsrc), "end-of-stream", &ret);
+    }
 
     close_files();
 
