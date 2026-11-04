@@ -6,12 +6,6 @@
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
-#ifdef GDK_WINDOWING_X11
-#include <gdk/gdkx.h>  // for GDK_WINDOW_XID
-#endif
-#ifdef GDK_WINDOWING_WIN32
-#include <gdk/gdkwin32.h>  // for GDK_WINDOW_HWND
-#endif
 
 
 // These are straight-up copy-pasted form gevCapture
@@ -37,16 +31,6 @@ unsigned n_buffers_streaming = 10;
 gint display_fps_streaming = 50;
 // Time since last update
 struct timespec clock_last_snapshot_streaming, clock_now_streaming;
-
-void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer)
-{
-#ifdef GDK_WINDOWING_X11
-    viewer->video_window_xid = GDK_WINDOW_XID (gtk_widget_get_window (widget));
-#endif
-#ifdef GDK_WINDOWING_WIN32
-    viewer->video_window_xid = (guintptr) GDK_WINDOW_HWND (gtk_widget_get_window (widget));
-#endif
-}
 
 void remove_widget (GtkWidget *widget, gpointer data)
 {
@@ -291,28 +275,6 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     }
 }
 
-// handles the bus... not sure what that does exactly
-GstBusSyncReply bus_sync_handler (GstBus *bus, GstMessage *message, gpointer user_data)
-{
-    LrdViewer *viewer = user_data;
-
-    if (!gst_is_video_overlay_prepare_window_handle_message(message))
-        return GST_BUS_PASS;
-
-    if (viewer->video_window_xid != 0) {
-        GstVideoOverlay *videooverlay;
-
-        videooverlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
-        gst_video_overlay_set_window_handle (videooverlay, viewer->video_window_xid);
-    } else {
-        g_warning ("Should have obtained video_window_xid by now!");
-    }
-
-    gst_message_unref (message);
-
-    return GST_BUS_DROP;
-}
-
 
 // Creates the acquisition stream of the camera. On failure, tells the user why and returns NULL
 // (the camera itself is left untouched).
@@ -433,25 +395,20 @@ void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
 }
 
 // Creates the video sink (viewer->videosink) and adds it to the pipeline, without linking it.
-// With gtksink, the video is shown inside the window; otherwise autovideosink opens its own window.
+// The video is shown inside the window by gtksink (required by gstreamer_plugin_check).
 void add_display_sink (LrdViewer *viewer)
 {
-    /* gtkglsink is not used: it crashes when we come back to the camera list with
-     * "Gdk-WARNING **: eglMakeCurrent failed" (from Aravis Viewer) */
-    if (has_gtksink || has_gtkglsink) {
-        log_trace("    A video sink of type 'gtksink' is used.");
-        GtkWidget *video_widget;
-        viewer->videosink = gst_element_factory_make ("gtksink", NULL);
+    GtkWidget *video_widget;
 
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        log_trace("    A video sink of type 'autovideosink' is used.");
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-    }
+    log_trace("    A video sink of type 'gtksink' is used.");
+    viewer->videosink = gst_element_factory_make ("gtksink", NULL);
+
+    g_object_get (viewer->videosink, "widget", &video_widget, NULL);
+    gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
+    gtk_widget_show (video_widget);
+    g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
+    gtk_widget_set_size_request (video_widget, 640, 480);
+
     gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
 
     g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
@@ -477,13 +434,6 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
 
     g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE,
                  "do-timestamp", framerate_n == 0, NULL);
-
-    log_trace("    Bus management.");
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
 
     log_trace("    Pipeline in playing state.");
     gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);

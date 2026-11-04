@@ -261,14 +261,8 @@ struct  _LrdViewer {
     gulong keypress_handler_id;
 
     gboolean is_fullscreen; //Retrieving the fullscreen state directly by asking is_fullscreen for a window is only possible in GTK4 so we have to track fullscreen state ourselves in GTK3.
-
-
-    gulong video_window_xid;
 };
 
-extern gboolean has_autovideo_sink;
-extern gboolean has_gtksink;
-extern gboolean has_gtkglsink;
 extern gboolean has_bayer2rgb;
 
 // Notifications
@@ -462,10 +456,6 @@ void constrain_roi(LrdViewer *viewer);
 void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height);
 void crop_to_roi(LrdViewer *viewer);
 
-// Buttons on camera mode
-
-void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer);
-
 // Video streaming
 
 /* return time from timespec-structure in milliseconds */
@@ -495,8 +485,6 @@ gboolean start_video (LrdViewer *viewer);
 void stop_video (LrdViewer *viewer);
 
 gboolean update_status_bar_cb (void *data);
-
-GstBusSyncReply bus_sync_handler (GstBus *bus, GstMessage *message, gpointer user_data);
 
 GstBuffer * arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer);
 void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *buffer);

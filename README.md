@@ -16,6 +16,10 @@ First you have to install some dependencies to be able to install Aravis
                      libgstreamer-plugins-base1.0-dev \
                      libgirepository1.0-dev gettext
 
+Limrendir displays the video with the GStreamer `gtksink` plugin:
+
+    sudo apt install gstreamer1.0-gtk3
+
 Also, because Aravis relies on it you have to install [meson](https://mesonbuild.com/) (if the version given by apt is too old, try using pip).
 
 Then [install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html) (version >= 0.8). 

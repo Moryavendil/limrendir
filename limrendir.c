@@ -11,9 +11,6 @@
 
 #define ARV_VIEWER_NOTIFICATION_TIMEOUT 10
 
-gboolean has_autovideo_sink = FALSE;
-gboolean has_gtksink = FALSE;
-gboolean has_gtkglsink = FALSE;
 gboolean has_bayer2rgb = FALSE;
 
 static gboolean create_fake_camera = FALSE;
@@ -33,7 +30,8 @@ gstreamer_plugin_check (void)
 		static char *plugins[] = {
 			"appsrc",
 			"videoconvert",
-			"videoflip"
+			"videoflip",
+			"gtksink"
 		};
 
 		registry = gst_registry_get ();
@@ -49,36 +47,10 @@ gstreamer_plugin_check (void)
 				g_object_unref (feature);
 		}
 
-		feature = gst_registry_lookup_feature (registry, "autovideosink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_autovideo_sink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'autovideosink' present: %s", has_autovideo_sink ? "yes" : "no");
-
-		feature = gst_registry_lookup_feature (registry, "gtksink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_gtksink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'gtksink' present: %s", has_gtksink ? "yes" : "no");
-
-		feature = gst_registry_lookup_feature (registry, "gtkglsink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_gtkglsink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'gtkglsink' present: %s", has_gtkglsink ? "yes" : "no");
-
 		feature = gst_registry_lookup_feature (registry, "bayer2rgb");
 		if (GST_IS_PLUGIN_FEATURE (feature)) {
 			has_bayer2rgb = TRUE;
 			g_object_unref (feature);
-		}
-
-		if (!has_autovideo_sink && !has_gtkglsink && !has_gtksink) {
-			g_print ("Missing GStreamer video output plugin (autovideosink, gtksink or gtkglsink)\n");
-			success = FALSE;
 		}
 
 		if (!success)
@@ -481,10 +453,6 @@ activate (GApplication *application)
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
     g_signal_connect (viewer->max_frame_rate_button, "toggled", G_CALLBACK(apply_max_frame_rate_if_wanted), viewer);
-
-	if (!has_gtksink && !has_gtkglsink) {
-		g_signal_connect (viewer->video_frame, "realize", G_CALLBACK (video_frame_realize_cb), viewer);
-	}
 
 	viewer->camera_selected = g_signal_connect (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), "changed",
 						    G_CALLBACK (camera_selection_changed_cb), viewer);

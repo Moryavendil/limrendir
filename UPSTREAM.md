@@ -35,8 +35,8 @@ top of `limrendir.h`).
 | `d3495deaa` | 2025-02-14 | Add SPDX license identifier | 🟢 skipped | Licence headers. | |
 | `ed2dd3bc9` | 2025-02-16 | License change to LGPL-2.1-or-later | 🟢 skipped | Licence headers. | |
 | `85e5a2fd4` | 2025-11-11 | Exposure time and gain increment functions | 🔴 pending | `arv_camera_get_{exposure_time,gain}_increment` are not in 0.8: needs `ARAVIS_CHECK_VERSION` guard. See `ba0d728d0`. | |
-| `57983d013` | 2025-11-11 | Require gtksink | 🔴 pending | Limrendir already avoids gtkglsink for display; drop the leftover detection/fallback code in `limrendir.c`. Port with `28e0cb133`. | |
-| `28e0cb133` | 2025-11-11 | Remove dead gtkglsink code | 🔴 pending | See `57983d013`. | |
+| `57983d013` | 2025-11-11 | Require gtksink | 🟢 ported | Limrendir already avoids gtkglsink for display; drop the leftover detection/fallback code in `limrendir.c`. Port with `28e0cb133`. | |
+| `28e0cb133` | 2025-11-11 | Remove dead gtkglsink code | 🟢 ported | See `57983d013`. | |
 | `c34a49538` | 2026-03-22 | Display support for 10/12-bit packed formats | 🔴 undecided | Mono12P/Packed, BayerRG10P/12P... Display only; port with `3c8bf4b46`. Large (~800 lines). | |
 | `3c8bf4b46` | 2026-04-01 | Unpacking with reusable buffer and worker thread | 🔴 undecided | See `c34a49538`. | |
 | `214f84065` | 2026-05-11 | Remove unused include | 🟢 skipped | Include not present in limrendir. | |
