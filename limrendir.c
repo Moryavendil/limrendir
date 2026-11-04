@@ -167,7 +167,9 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
         for (int i_camera = 0; i_camera < number_of_available_cameras; i_camera++) {
             gtk_tree_model_iter_nth_child(tree_model, &iter, NULL, i_camera);
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
-            if (g_str_equal(viewer->gc_option_camera_name, camera_id)) {
+            gboolean const is_wanted_camera = g_str_equal(viewer->gc_option_camera_name, camera_id);
+            g_free(camera_id);
+            if (is_wanted_camera) {
                 gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW (viewer->camera_tree)),
                                                &iter);
                 if (!ARV_IS_CAMERA (viewer->camera))
@@ -186,6 +188,7 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
                 gtk_tree_model_iter_nth_child(tree_model, &iter, NULL, i_camera);
                 gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
                 log_info("    - %s", camera_id);
+                g_free(camera_id);
             }
         }
     } else {
@@ -194,9 +197,12 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
             gtk_tree_selection_select_iter (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), &iter);
 
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
-            if (!ARV_IS_CAMERA (viewer->camera))
+            if (!ARV_IS_CAMERA (viewer->camera)) {
+                g_free(camera_id);
                 return FALSE; // start_camera already said why
+            }
             log_info("Auto-selected the only camera available: %s", camera_id);
+            g_free(camera_id);
             return TRUE;
         }
     }
@@ -281,7 +287,7 @@ limrendir_set_options (LrdViewer *viewer,
     g_return_if_fail (viewer != NULL);
 
     viewer->gevcapture_mode = lrd_option_gevcapture_mode;
-    viewer->dataset_name = lrd_option_dataset_name;
+    viewer->dataset_name = g_strdup (lrd_option_dataset_name);
     create_fake_camera = lrd_option_create_fake_camera;
 }
 

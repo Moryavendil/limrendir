@@ -289,13 +289,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
         log_debug("No name specified, we need to set one.");
         filename = obtain_new_original_filename(viewer);
     } else {
-        // Is this a valid copy method ?
-        // Will it generate a segfault ?
-        // Memory loss ?
-        // Hatred from grumpy c programmers ?
-        // Who knows ¯\_(ツ)_/¯
-        filename = malloc (strlen(viewer->dataset_name)+1);
-        memcpy(filename, viewer->dataset_name, strlen(viewer->dataset_name)+1);
+        filename = g_strdup(viewer->dataset_name);
 
         // This part is useless but la flemme de l'enlever
         char *extension = ".gcv";
@@ -305,6 +299,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
         if (does_file_exist(dirname) || does_dir_exist(dirname)) {
             log_debug("Name %s is taken, generating another one.", viewer->dataset_name);
+            g_free(filename);
             filename = obtain_new_original_filename(viewer);
         } else {
             log_debug("Name %s seems to be free (nothing named %s).", viewer->dataset_name, dirname);
@@ -406,6 +401,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
         log_debug("Dialog accepted.");
 
         filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER (dialog));
+        g_free(viewer->dataset_name);
         viewer->dataset_name = remove_ext(filename, '.', '/');
 
 
@@ -458,6 +454,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
             chosen_filetype = RECORDTYPE_NONE;
         }
         gtk_widget_destroy(dialog);
+        g_free(filename); // 'extension' pointed into it
         return chosen_filetype;
 
     } else if (result == GTK_RESPONSE_CANCEL) {
@@ -823,11 +820,11 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
                       NULL);
 
 
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                              (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                      (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
                                                                       (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
@@ -879,10 +876,18 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
     }
 }
 
+// Links a pad to the "sink" pad of an element
+static GstPadLinkReturn link_pad_to_element (GstPad *src_pad, GstElement *element) {
+    GstPad *sink_pad = gst_element_get_static_pad (element, "sink");
+    GstPadLinkReturn result = gst_pad_link (src_pad, sink_pad);
+    gst_object_unref (sink_pad);
+    return result;
+}
+
 // jhfdejhgfuyswfiuse
 static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
-    char *filename = have_video_filename(viewer, viewer->record_type);
+    g_autofree char *filename = have_video_filename(viewer, viewer->record_type);
     if (filename == NULL) {
         log_info("Could not get filename");
         return FALSE;
@@ -964,7 +969,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     g_object_set(G_OBJECT (viewer->videosink), "async", FALSE, NULL);
 
     gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
-    link_success = gst_pad_link (tee_display_src_pad, gst_element_get_static_pad (viewer->videosink, "sink"));
+    link_success = link_pad_to_element (tee_display_src_pad, viewer->videosink);
     if (GST_PAD_LINK_FAILED (link_success)) {
         log_debug("Link from the tee to the display video sink failed.");
         return FALSE;
@@ -1010,7 +1015,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, x264enc, flvmux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -1039,7 +1044,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, queue, x264enc, mp4mux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -1067,7 +1072,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -1096,7 +1101,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, xvidenc, avimux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -1188,11 +1193,11 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
                       NULL);
 
 
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                              (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                      (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
                                                                       (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
@@ -1289,11 +1294,11 @@ static gboolean bourrin_recording(void *data)
                       NULL);
 
 
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                              (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
                                                                      (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
                                                                       (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
         log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
                   initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
@@ -1410,7 +1415,7 @@ void abort_recording(LrdViewer *viewer) {
     g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
     g_signal_handler_unblock (viewer->record_button, viewer->recording_button_changed);
-    viewer->dataset_name = NULL;
+    g_clear_pointer(&viewer->dataset_name, g_free);
     viewer->record_type = RECORDTYPE_NONE;
 }
 
@@ -1630,7 +1635,7 @@ void stop_recording (LrdViewer *viewer) {
     // This will call stop_video, we have every reason to hope it will clean up all the remaining mess
     start_video (viewer);
 
-    viewer->dataset_name = NULL;
+    g_clear_pointer(&viewer->dataset_name, g_free);
     viewer->record_type = RECORDTYPE_NONE;
 }
 

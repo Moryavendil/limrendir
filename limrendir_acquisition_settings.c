@@ -105,14 +105,17 @@ void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer
 void change_default_acquisition_name (GtkToggleButton *button, LrdViewer *viewer)
 {
     if (gtk_entry_get_text_length(GTK_ENTRY( viewer->acquisition_name_entry)) == 0) {
-        gtk_entry_set_placeholder_text(GTK_ENTRY( viewer->acquisition_name_entry), obtain_new_original_filename(viewer));
+        char *default_name = obtain_new_original_filename(viewer);
+        gtk_entry_set_placeholder_text(GTK_ENTRY( viewer->acquisition_name_entry), default_name);
+        g_free(default_name);
     }
 }
 
 void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer)
 {
     if (gtk_entry_get_text_length(GTK_ENTRY( viewer->acquisition_name_entry)) != 0) {
-        viewer->dataset_name = strdup( gtk_entry_get_text(GTK_ENTRY( viewer->acquisition_name_entry)) );
+        g_free(viewer->dataset_name);
+        viewer->dataset_name = g_strdup( gtk_entry_get_text(GTK_ENTRY( viewer->acquisition_name_entry)) );
     } else {
         g_free(viewer->dataset_name);
         viewer->dataset_name = NULL;
