@@ -581,6 +581,8 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
         }
     }
 
+    // Let the key also reach the focused widget (e.g. to type in an entry)
+    return FALSE;
 }
 
 // Key listener toggle

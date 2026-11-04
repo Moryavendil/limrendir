@@ -1517,6 +1517,7 @@ gboolean start_recording (LrdViewer *viewer) {
 
 
                 g_timeout_add (500, bourrin_recording, viewer);
+                return TRUE;
                 break;
             default:
                 log_info("Unsupported video format");
@@ -1527,9 +1528,13 @@ gboolean start_recording (LrdViewer *viewer) {
         }
 
     }
+
+    log_warning("No recording mode selected.");
+    abort_recording(viewer);
+    return FALSE;
 }
 
-gboolean stop_recording (LrdViewer *viewer) {
+void stop_recording (LrdViewer *viewer) {
     log_trace("Ending the recording process...");
 
     if (ARV_IS_STREAM (viewer->stream))

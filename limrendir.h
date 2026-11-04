@@ -490,7 +490,7 @@ gboolean is_buffer_successful(ArvBuffer *buffer);
 gboolean is_record_button_active(LrdViewer *viewer);
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 gboolean start_recording (LrdViewer *viewer);
-gboolean stop_recording (LrdViewer *viewer);
+void stop_recording (LrdViewer *viewer);
 
 
 G_END_DECLS
