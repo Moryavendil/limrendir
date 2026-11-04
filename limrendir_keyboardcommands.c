@@ -23,8 +23,8 @@ void help(LrdViewer *viewer) {
 
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
         printf("a .................. See the largest possible field of view                     \n");
-        printf("z .................. Zoom on the center of the current field of view            \n");
-        printf("Z .................. Zoom out (x2) around the center of the field of view        \n");
+        printf("z .................. Zoom in (x2) to the center of the field of view            \n");
+        printf("Z .................. Zoom out (x2) from the center of the field of view         \n");
         printf("r .................. Toggle Region Of Interest mode                             \n");
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");

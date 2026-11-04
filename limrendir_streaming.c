@@ -645,7 +645,7 @@ gboolean update_status_bar_cb (void *data)
         float percent_saturated_0 = 100 * (float) saturated_0 / (float) buffer_size;
         float percent_saturated_255 = 100 * (float) saturated_255 / (float) buffer_size;
 //        text = g_strdup_printf(" %d - %d ", valbuffermax, valbuffermin);
-        text = g_strdup_printf("(%.2f %% saturated) %d - %d (%.2f %% saturated)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
+        text = g_strdup_printf("(%.2f %%) %d – %d (%.2f %%)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
 //        text = g_strdup_printf("(%d / %d) (%.5f %% saturated)", saturated_0, buffer_size, percent_saturated_0);
 
     }
