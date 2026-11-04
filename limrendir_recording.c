@@ -81,7 +81,25 @@ void combine(char* destination, const char* path1, const char* path2)
     }
 }
 
-void open_files(LrdViewer *viewer) {
+void close_files();
+
+// Opens one of the files of a .gcv dataset. On failure, tells the user and returns NULL.
+static FILE *open_dataset_file(LrdViewer *viewer, const char *dirname, const char *filename) {
+    char path[strlen(dirname) + strlen(filename) + 2];
+    combine(path, dirname, filename);
+    log_trace("%s path: %s", filename, path);
+
+    FILE *file = fopen(path, "w");
+    if (file == NULL) {
+        int const saved_errno = errno;
+        log_error("Could not create the file '%s': %s", path, g_strerror(saved_errno));
+        arv_viewer_show_notification(viewer, "Could not create the recording file", g_strerror(saved_errno));
+    }
+    return file;
+}
+
+// Creates the .gcv folder and its files. Returns FALSE (with everything closed) if this is not possible.
+gboolean open_files(LrdViewer *viewer) {
 
     char *extension = ".gcv";
     size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
@@ -90,25 +108,27 @@ void open_files(LrdViewer *viewer) {
 
     log_trace("dirpath: %s", dirname);
 
-    mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO);
+    // An already existing folder is fine (e.g. chosen in the dialog), anything else is an error
+    if (mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO) != 0 && errno != EEXIST) {
+        int const saved_errno = errno;
+        log_error("Could not create the recording folder '%s': %s", dirname, g_strerror(saved_errno));
+        arv_viewer_show_notification(viewer, "Could not create the recording folder", g_strerror(saved_errno));
+        g_free(dirname);
+        return FALSE;
+    }
 
-    const char* rawvideo_filename = "rawvideo.raw";
-    char rawvideo_path[strlen(dirname) + strlen(rawvideo_filename) + 2];
-    combine(rawvideo_path, dirname, rawvideo_filename);
-    log_trace("rawvideo_path: %s", rawvideo_path);
-    imageFile = fopen(rawvideo_path, "w");
+    imageFile = open_dataset_file(viewer, dirname, "rawvideo.raw");
+    if (imageFile != NULL)
+        stampFile = open_dataset_file(viewer, dirname, "stamps.stamps");
+    if (stampFile != NULL)
+        metaFile = open_dataset_file(viewer, dirname, "metainfo.meta");
+    g_free(dirname);
 
-    const char* stamps_filename = "stamps.stamps";
-    char stamps_path[strlen(dirname) + strlen(stamps_filename) + 2];
-    combine(stamps_path, dirname, stamps_filename);
-    log_trace("stamps_path: %s", stamps_path);
-    stampFile = fopen(stamps_path, "w");
-
-    const char* meta_filename = "metainfo.meta";
-    char meta_path[strlen(dirname) + strlen(meta_filename) + 2];
-    combine(meta_path, dirname, meta_filename);
-    log_trace("meta_path: %s", meta_path);
-    metaFile = fopen(meta_path, "w");
+    if (imageFile == NULL || stampFile == NULL || metaFile == NULL) {
+        close_files();
+        return FALSE;
+    }
+    return TRUE;
 }
 
 void close_files() {
@@ -759,7 +779,8 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     frame_numbering_reset(&record_numbering);
 
     // Files writing
-    open_files(viewer);
+    if (!open_files(viewer))
+        return FALSE;
 
     write_meta(viewer);
 
@@ -1222,7 +1243,12 @@ static gboolean bourrin_recording(void *data)
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
 
     // Files writing
-    open_files(viewer);
+    if (!open_files(viewer)) {
+        // Puts the interface back in its normal state
+        stop_recording (viewer);
+        gtk_widget_set_sensitive(viewer->help_button, TRUE);
+        return FALSE;
+    }
 
     write_meta(viewer);
 

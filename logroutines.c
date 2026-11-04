@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <errno.h>
 #include <logroutines.h>
 
 char* log_filename = NULL;
@@ -108,9 +109,11 @@ void log_write(LogLevel level, const char *fmt, ...)
     if (level <= log_level) {
         fprintf(stdout, "%s %s\n", terminal_formatted_log_category_string(level), buffer);
     }
-    char *date_string = g_date_time_format (g_date_time_new_now_local (), "%Y-%m-%d-%H:%M:%S");
-    fprintf(log_file, "%s - %s %s\n", date_string, log_category_string(level), buffer);
-    g_free(date_string);
+    if (log_file != NULL) {
+        char *date_string = g_date_time_format (g_date_time_new_now_local (), "%Y-%m-%d-%H:%M:%S");
+        fprintf(log_file, "%s - %s %s\n", date_string, log_category_string(level), buffer);
+        g_free(date_string);
+    }
 }
 
 void log_initialize(LogLevel logging_level) {
@@ -124,7 +127,13 @@ void log_initialize(LogLevel logging_level) {
     char const *extension = ".log";
     log_filename = g_strdup_printf("%s_%s%s", core, date_string, extension);
     log_file = fopen(log_filename, "w");
-    setvbuf(log_file, NULL, _IOLBF, 0);
+    if (log_file != NULL) {
+        setvbuf(log_file, NULL, _IOLBF, 0);
+    } else {
+        int const saved_errno = errno;
+        // Logging goes on in the terminal only
+        log_warning("Could not create the log file '%s' (%s): logs are only shown here.", log_filename, g_strerror(saved_errno));
+    }
 
     log_trace("Log level: %d", log_level);
 }
