@@ -381,12 +381,14 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 //    gtk_file_filter_add_pattern(filter_all, "*.mkv");
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
-    const gchar *mp4_filter_name = "MP4 video (*.mp4)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, mp4_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.mp4");
-//    gtk_file_filter_add_pattern(filter_all, "*.mp4");
-//    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
+    filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, mp4_filter_name);
+    gtk_file_filter_add_pattern(filter, "*.mp4");
+    gtk_file_filter_add_pattern(filter_all, "*.mp4");
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    }
 
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
 
@@ -726,6 +728,17 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
 
 // RECORDING WITH PURE GSTREAMER
 
+// MP4 encoding settings. The default is the most widely readable video format: H.264, 4:2:0, 8 bits, in MP4.
+// The fast 'superfast' preset is needed to keep up with high frame rates (x264's default preset cannot follow
+// 156 fps at 1920x1200), and a constant quality (CRF) of 18 gives a visually lossless video.
+typedef struct {
+    const char *raw_format;    // pixel format given to the encoder (I420 = 4:2:0, readable by all players)
+    const char *speed_preset;  // x264 speed preset
+    guint quality;             // x264 constant quality (CRF): 0 = lossless, 18 = visually lossless, 23 = x264 default
+} Mp4EncodingSettings;
+
+static const Mp4EncodingSettings mp4_encoding_settings = {"I420", "superfast", 18};
+
 // the callback called each time an aravis buffer is available
 static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
 {
@@ -790,8 +803,14 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     // But fuck it.
     g_object_set(G_OBJECT (viewer->videosink), "async", FALSE, NULL);
 
-    link_success = link_pad_to_element (tee_display_src_pad, viewer->videosink);
-    if (GST_PAD_LINK_FAILED (link_success)) {
+    // The display must never slow down the recording: it gets its own thread through a queue that keeps only the
+    // latest frame and drops the others when the display cannot follow the camera frame rate.
+    GstElement *display_queue = gst_element_factory_make ("queue", NULL);
+    gst_util_set_object_arg (G_OBJECT (display_queue), "leaky", "downstream");
+    g_object_set (G_OBJECT (display_queue), "max-size-buffers", 1, "max-size-bytes", 0, "max-size-time", (guint64) 0, NULL);
+    gst_bin_add (GST_BIN (viewer->pipeline), display_queue);
+    link_success = link_pad_to_element (tee_display_src_pad, display_queue);
+    if (GST_PAD_LINK_FAILED (link_success) || !gst_element_link (display_queue, viewer->videosink)) {
         log_debug("Link from the tee to the display video sink failed.");
         return FALSE;
     }
@@ -843,35 +862,44 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Getting rid of the sink pad
             gst_object_unref (GST_OBJECT (flvmux_sink_pad));
             break;
-        case RECORDTYPE_MP4:
-            log_warning("mp4 encoding is still experimental. This might not work");
+        case RECORDTYPE_MP4: {
             /*
-             * MP4 RECORDING - NOT WORKING RIGHT NOW
+             * MP4 RECORDING
              *
              * Record pipeline:
-             *  tee -> videoconvert -> queue-> x264enc -> mp4mux -> filesink
+             *  tee -> videoconvert -> capsfilter (I420) -> queue -> x264enc -> mp4mux -> filesink
              */
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
+            GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
+            GstCaps *raw_caps = gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, mp4_encoding_settings.raw_format, NULL);
+            g_object_set (G_OBJECT (capsfilter), "caps", raw_caps, NULL);
+            gst_caps_unref (raw_caps);
             queue = gst_element_factory_make ("queue", NULL);
             x264enc = gst_element_factory_make ("x264enc", NULL);
+            gst_util_set_object_arg (G_OBJECT (x264enc), "speed-preset", mp4_encoding_settings.speed_preset);
+            gst_util_set_object_arg (G_OBJECT (x264enc), "pass", "qual");
+            g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
-            GstPad *mp4mux_sink_pad = gst_element_get_request_pad (mp4mux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
+            log_debug("MP4 encoding: H.264 %s, preset %s, constant quality %u", mp4_encoding_settings.raw_format,
+                      mp4_encoding_settings.speed_preset, mp4_encoding_settings.quality);
 
             // Adding to the bin
-            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, queue, x264enc, mp4mux, filesink, NULL);
+            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL);
             // Linking the elements
             link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, queue, x264enc, mp4mux, filesink, NULL);
-            // Getting rid of the sink pad
-            gst_object_unref (GST_OBJECT (mp4mux_sink_pad));
+            if (!gst_element_link_many (videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL)) {
+                log_error("Could not build the MP4 recording pipeline.");
+                return FALSE;
+            }
             break;
+        }
         case RECORDTYPE_MKV:
             log_warning("mkv encoding is still experimental. This might not work");
             /*
@@ -1166,6 +1194,7 @@ gboolean start_recording (LrdViewer *viewer) {
                 }
                 break;
             case RECORDTYPE_FLV:
+            case RECORDTYPE_MP4:
                 stop_video(viewer);
                 successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
                 if (successful_launch) {
