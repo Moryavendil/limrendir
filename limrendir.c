@@ -310,7 +310,7 @@ static void
 arv_viewer_quit_cb (GtkApplicationWindow *window, LrdViewer *viewer)
 {
     log_debug("Quit callback called.");
-    log_info("Au revoir!");
+    // log_info("Au revoir!");
     stop_camera (viewer);
     g_application_quit (G_APPLICATION (viewer));
 }

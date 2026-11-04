@@ -129,7 +129,7 @@ void log_initialize(LogLevel logging_level) {
         log_warning("Could not create the log file '%s' (%s): logs are only shown here.", log_filename, g_strerror(saved_errno));
     }
     if (log_file != NULL)
-        log_info("Logs for this session are saved in '%s'", log_filename);
+        log_debug("Logs for this session are saved in '%s'", log_filename);
 
     log_trace("Log level: %d", (int) log_level);
 }
