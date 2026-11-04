@@ -1052,7 +1052,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
+            gst_element_link_many (videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
             // Getting rid of the sink pad
             gst_object_unref (GST_OBJECT (matroskamux_sink_pad));
             break;
