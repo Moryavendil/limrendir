@@ -559,14 +559,15 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         // Check that we did indeed grab something
         if (buffer == NULL) {
             // For some reason, we were signaled a buffer but we could not retrieve one. Weird!
+            // The queue is empty, so there is nothing left to do.
             fprintf(stderr, "O\n");
-            return;
+            break;
         }
 
-        // Check if the buffer was successful
+        // Check if the buffer was successful. If not, give it back and handle the next waiting ones.
         if (!is_buffer_successful(buffer)) {
             arv_stream_push_buffer(stream, buffer);
-            return;
+            continue;
         }
 
         // unwrap running frame number
