@@ -4,6 +4,41 @@
 #include <limrendir.h>
 #include <logroutines.h>
 
+// USB memory check
+
+#define USBFS_MEMORY_MB_PATH "/sys/module/usbcore/parameters/usbfs_memory_mb"
+#define USBFS_MEMORY_MB_RECOMMENDED 1000
+
+// Linux limits the memory all USB transfers may use at once (usbfs_memory_mb, 16 MB by default).
+// This is too little for USB3 Vision cameras at high frame rates or resolutions: frames get lost.
+// Warns if the limit is low. Does nothing if it cannot be read (e.g. not on Linux).
+static void check_usbfs_memory (void)
+{
+    char *contents = NULL;
+
+    if (!g_file_get_contents (USBFS_MEMORY_MB_PATH, &contents, NULL, NULL)) {
+        log_debug("Could not read %s, the USB memory limit is not checked.", USBFS_MEMORY_MB_PATH);
+        return;
+    }
+
+    guint64 usbfs_memory_mb = g_ascii_strtoull (g_strstrip (contents), NULL, 10);
+    g_free (contents);
+
+    // 0 means no limit
+    if (usbfs_memory_mb == 0 || usbfs_memory_mb >= USBFS_MEMORY_MB_RECOMMENDED) {
+        log_debug("USB memory limit (usbfs_memory_mb): %" G_GUINT64_FORMAT " MB", usbfs_memory_mb);
+        return;
+    }
+
+    log_warning("The USB memory limit is low (usbfs_memory_mb = %" G_GUINT64_FORMAT " MB, %d MB recommended): "
+                "USB3 cameras may lose frames at high frame rates.", usbfs_memory_mb, USBFS_MEMORY_MB_RECOMMENDED);
+    log_warning("    To raise it until the next reboot: "
+                "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
+    log_warning("    To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
+                "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
+                USBFS_MEMORY_MB_RECOMMENDED);
+}
+
 // MODE CHANGE
 
 // Select mode
@@ -359,8 +394,10 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
     arv_device_set_range_check_policy (arv_camera_get_device (viewer->camera),
                                        viewer->range_check_policy);
 
-    if (arv_camera_is_uv_device (viewer->camera))
+    if (arv_camera_is_uv_device (viewer->camera)) {
         arv_camera_uv_set_usb_mode (viewer->camera, viewer->usb_mode);
+        check_usbfs_memory ();
+    }
 
     viewer->camera_name = g_strdup (camera_id);
 
