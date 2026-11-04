@@ -262,6 +262,35 @@ void crop_to_roi(LrdViewer *viewer) {
     log_trace("====== CROP End");
 }
 
+// Largest region size (in binned pixels), whatever the current offsets. The Width/Height bounds can not be used:
+// depending on the camera, their maximum is either absolute or reduced by the current offset.
+static void get_max_region_size (LrdViewer *viewer, gint *max_w, gint *max_h) {
+    if (arv_camera_is_feature_available (viewer->camera, "WidthMax", NULL) &&
+        arv_camera_is_feature_available (viewer->camera, "HeightMax", NULL)) {
+        // Standard (SFNC) features, with the binning applied and the offsets ignored
+        *max_w = (gint) arv_camera_get_integer (viewer->camera, "WidthMax", NULL);
+        *max_h = (gint) arv_camera_get_integer (viewer->camera, "HeightMax", NULL);
+        log_trace("Max region size from WidthMax/HeightMax: %d x %d", *max_w, *max_h);
+    } else {
+        // The sensor size is in unbinned pixels
+        gint sensor_w, sensor_h, binning_x = 1, binning_y = 1;
+        arv_camera_get_sensor_size (viewer->camera, &sensor_w, &sensor_h, NULL);
+        if (arv_camera_is_binning_available (viewer->camera, NULL))
+            arv_camera_get_binning (viewer->camera, &binning_x, &binning_y, NULL);
+        *max_w = sensor_w / MAX (binning_x, 1);
+        *max_h = sensor_h / MAX (binning_y, 1);
+        log_trace("Max region size from the sensor size (%d x %d) and binning (%d x %d): %d x %d",
+                  sensor_w, sensor_h, binning_x, binning_y, *max_w, *max_h);
+    }
+    if (*max_w <= 0 || *max_h <= 0) {
+        // Neither is available: the Width/Height maximum may be too small (if reduced by the offsets), but it is
+        // always accepted by the camera
+        arv_camera_get_width_bounds (viewer->camera, NULL, max_w, NULL);
+        arv_camera_get_height_bounds (viewer->camera, NULL, max_h, NULL);
+        log_warning("Unknown sensor size: the largest field of view may not be reached (%d x %d).", *max_w, *max_h);
+    }
+}
+
 void see_whole_field_of_view(LrdViewer *viewer) {
     log_debug("Seeing all the field of view");
     log_trace("=== Start VIEWALL");
@@ -270,9 +299,15 @@ void see_whole_field_of_view(LrdViewer *viewer) {
     arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
     log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
 
-    // This ROI is the whole current field of view
-    int new_roi_x = old_x;
-    int new_roi_y = old_y;
+    gint min_x, min_y, max_w, max_h;
+    arv_camera_get_x_offset_bounds(viewer->camera, &min_x, NULL, NULL);
+    arv_camera_get_y_offset_bounds(viewer->camera, &min_y, NULL, NULL);
+    get_max_region_size (viewer, &max_w, &max_h);
+    log_trace("Max region: x: %d ; y: %d ; w: %d ; h: %d", min_x, min_y, max_w, max_h);
+
+    // This ROI is the whole current field of view (relative to the max region)
+    int new_roi_x = old_x - min_x;
+    int new_roi_y = old_y - min_y;
     int new_roi_w = old_w;
     int new_roi_h = old_h;
     log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
@@ -283,21 +318,7 @@ void see_whole_field_of_view(LrdViewer *viewer) {
         new_roi_w = viewer->roi_w;
         new_roi_h = viewer->roi_h;
     }
-    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
-
-    gint min_x, min_y, max_w, max_h;
-    arv_camera_get_x_offset_bounds(viewer->camera, &min_x, NULL, NULL);
-    arv_camera_get_y_offset_bounds(viewer->camera, &min_y, NULL, NULL);
-    arv_camera_get_width_bounds(viewer->camera, NULL, &max_w, NULL);
-    arv_camera_get_height_bounds (viewer->camera, NULL, &max_h, NULL);
-    /*
-     * FOR SOME CAMERAS (Arv-Fake par ex), arv_camera_get_width_bounds renvoie les bornes ABSOLUES
-     * POUR D'AUTRES (la manta par ex), arv_camera_get_width_bounds renvoie les bornes possibles sachant l'offset x.
-     * DANS LE DOUTE on blinde et on met un gros truc dans la max region. Au pire ca ne sera pas pris en compte.
-     */
-    max_w += old_x;
-    max_h += old_y;
-    log_trace("Max region: x: %d ; y: %d ; w: %d ; h: %d", min_x, min_y, max_w, max_h);
+    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", new_roi_x, new_roi_y, new_roi_w, new_roi_h);
 
     if (old_x == min_x && old_y == min_y && old_w == max_w && old_h == max_h) {
         log_debug("The old fov is already the max fov.");
