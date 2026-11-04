@@ -18,7 +18,7 @@ First you have to install some dependencies to be able to install Aravis
 
 Also, because Aravis relies on it you have to install [meson](https://mesonbuild.com/) (if the version given by apt is too old, try using pip).
 
-Then [install the Aravis library](https://aravisproject.github.io/aravis/building.html) (version >= 0.8). 
+Then [install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html) (version >= 0.8). 
 
 Then download this project and in the main directory type
 
@@ -30,14 +30,20 @@ Use option `--help` to know about the available options.
 
 Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
 
+## Troubleshooting: camera not listed
 
-## Troubleshooting missing frames
+To see the cameras available to aravis, use `arv-tool`. If it does not show your camera, try running it as an administrator.
+
+For USB cameras, see permission issues [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html#permissions).
+
+## Troubleshooting: missing frames
 
 During recording there can be dropped frames, i.e. frames that were not saved for one reason or another and that are missing in the video. These are especially frequent when having a high data rate (around and above 100 MB/s), a slow computer and/or several programs running in parallel. Limrendir should indicate that a frame was dropped by displaying "(X)" in a warning message. If you are experiencing dropped frames, you may try the following:
 
 ### Check the camera-computer connection
-* Ensure that the camera is properly connected to your computer with an appropriate cable (for example, a category 6 Ethernet cable).
-* Verify that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (preferrably 9000).
+* Ensure that the camera is properly connected to your computer with an appropriate cable (Ethernet: a category 6 Ethernet cable / USB: a 3.0 cable).
+* Ethernet cameras: Verify that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (preferrably 9000).
+* USB cameras: Check that the USB buffer limit is high enough (display it with `cat /sys/module/usbcore/parameters/usbfs_memory_mb`). To raise it until next reboot: `echo 1000 | sudo tee /sys/module/usbcore/parameters/usbfs_memory_mb`.
 
 ### Upgrade the permissions given to limrendir
 * Run limrendir as administrator (using `sudo`), which will allow to make the Aravis thread relatime.
@@ -51,7 +57,7 @@ During recording there can be dropped frames, i.e. frames that were not saved fo
  * If your computer is a 2000's toaster with less than 2 GB of RAM, try buying another one
  * Limitate usage of CPU-heavy and RAM-guzzling applications such as Chrome
 
-See also the advices [here](https://aravisproject.github.io/aravis/ethernet.html).
+See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html).
 
 
 ## About the code
