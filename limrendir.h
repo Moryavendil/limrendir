@@ -441,12 +441,9 @@ void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
 
         void finalize_best_exposure_search (LrdViewer *viewer);
 
-        int get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
+        double measure_mean_max_pixel_value (LrdViewer *viewer);
 
-// The blocking version (simple but annoying)
-        void best_exposure_search_blocking (LrdViewer *viewer);
-
-// The non blocking version (multi-threaded so not blocking)
+// One measurement per step, run from the main loop
         gboolean best_exposure_search_next_step(void *data);
 
         void best_exposure_search_nonblocking (LrdViewer *viewer);

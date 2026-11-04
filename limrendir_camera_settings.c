@@ -493,12 +493,24 @@ void auto_black_level_cb (GtkToggleButton *toggle, LrdViewer *viewer)
 
 
 // Best exposure selection
+//
+// Finds the longest exposure time for which the image is not saturated, by a binary search on a logarithmic scale
+// between the shortest exposure time of the camera and the longest one compatible with the current frame rate
+// (1 / frame rate), with a precision of 1 %.
+// Each measurement uses all the frames received during 100 ms: the image is saturated if the average, over these
+// frames, of the maximum pixel value of each frame reaches 255 (8-bit pixels).
 
-static int n_frames_nb;
-static int n_frames_to_skip_nb;
-static int phase_nb;
-static double min_exposure_nb, max_exposure_nb, current_exposure_nb;
-static double initial_exposure_nb;
+static const double search_measurement_duration_s = 0.1;
+static const double search_precision = 0.01;
+// Number of frames dropped after an exposure change (they may have been exposed with the previous exposure time)
+static const int search_frames_to_skip = 2;
+
+// Current bounds of the search: lo is not saturated, hi is saturated (once tested; before, they are the limits)
+static double lo_exposure_bs, hi_exposure_bs;
+static gboolean lo_tested_bs, hi_tested_bs;
+static int n_steps_bs;
+static double initial_exposure_bs;
+static gint64 search_start_time_bs;
 // Requested frame rate before the search (restored at the end; e.g. the maximum value in 'max frame rate' mode)
 static double initial_frame_rate;
 
@@ -516,7 +528,8 @@ void initialize_best_exposure_search (LrdViewer *viewer) {
 void finalize_best_exposure_search (LrdViewer *viewer) {
     log_trace("Ending best exposure search.");
     update_exposure_cb(viewer);
-    log_info("Best exposure time: %f us", arv_camera_get_exposure_time(viewer->camera, NULL));
+    log_info("Best exposure time: %.1f us (%d measurements, %.1f s)", arv_camera_get_exposure_time(viewer->camera, NULL),
+             n_steps_bs, (double) (g_get_monotonic_time() - search_start_time_bs) / G_USEC_PER_SEC);
     g_signal_handler_unblock(viewer->stream, viewer->new_buffer_available_video);
     set_video_controls_sensitive(viewer, TRUE);
     gtk_widget_set_sensitive(viewer->record_button, TRUE);
@@ -540,195 +553,151 @@ static ArvBuffer *pop_search_buffer (LrdViewer *viewer) {
 // Stops the search when the camera does not send frames anymore, and puts the exposure time back
 static void abort_best_exposure_search (LrdViewer *viewer) {
     log_warning("No frame received from the camera: best exposure search aborted, exposure time restored.");
-    arv_camera_set_exposure_time (viewer->camera, initial_exposure_nb, NULL);
+    arv_camera_set_exposure_time (viewer->camera, initial_exposure_bs, NULL);
     finalize_best_exposure_search (viewer);
 }
 
-// Returns the maximum pixel value over n_frames frames (after skipping n_frames_to_skip), or -1 if the camera stalls
-int get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
-    ArvStream *stream = viewer->stream;
+// Maximum pixel value of a frame (8-bit pixels)
+static uint8_t frame_max_pixel_value (ArvBuffer *buffer) {
+    size_t size;
+    const uint8_t *image_data = arv_buffer_get_data (buffer, &size);
     uint8_t max_pixel_value = 0;
-
-    ArvBuffer *buffer;
-    int i_frame;
-    log_trace("Getting max pixel value");
-
-    // skipping frames
-    log_trace("\tSkipping frames");
-    i_frame = 0;
-    while (i_frame < n_frames_to_skip) {
-        // take a buffer
-        buffer = pop_search_buffer(viewer);
-        if (buffer == NULL)
-            return -1;
-
-        // Check if the buffer was successful
-        if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
-            log_trace("\t\tBuffer unsuccessful...");
-        } else {
-            i_frame++;
-            log_trace("\t\tSkipped %d frame(s) out of %d", i_frame, n_frames_to_skip);
-        }
-
-        arv_stream_push_buffer(stream, buffer);
+    for (size_t i = 0; i < size; i++) {
+        if (image_data[i] > max_pixel_value)
+            max_pixel_value = image_data[i];
     }
-
-    // measuring frames
-    log_trace("\tTaking frames");
-    i_frame = 0;
-    while (i_frame < n_frames) {
-        // take a buffer
-        buffer = pop_search_buffer(viewer);
-        if (buffer == NULL)
-            return -1;
-
-        // Check if the buffer was successful
-        if (arv_buffer_get_status(buffer) != ARV_BUFFER_STATUS_SUCCESS) {
-            log_trace("\t\tBuffer unsuccessful...");
-        } else {
-            // Get the data
-            uint8_t *image_data;
-            size_t size;
-
-            image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-            for (size_t i = 0; i < size; i++) {
-                if (image_data[i] > max_pixel_value)
-                    max_pixel_value = image_data[i];
-            }
-            i_frame++;
-            log_trace("\t\tTaken %d frame(s) out of %d", i_frame, n_frames);
-        }
-        arv_stream_push_buffer(stream, buffer);
-    }
-
-    log_debug("Max pixel value: %d (%d images skipped then %d images taken)", (int) max_pixel_value, n_frames_to_skip, n_frames);
     return max_pixel_value;
+}
+
+// Measures, with the current exposure time, the average over 100 ms of frames of the maximum pixel value of each
+// frame. The last frame is displayed. Returns -1 if the camera stalls.
+double measure_mean_max_pixel_value (LrdViewer *viewer) {
+    ArvBuffer *buffer;
+
+    // Frames already waiting may have been exposed with the previous exposure time, as well as the next ones
+    while ((buffer = arv_stream_try_pop_buffer (viewer->stream)) != NULL)
+        arv_stream_push_buffer (viewer->stream, buffer);
+    for (int n_skipped = 0; n_skipped < search_frames_to_skip; ) {
+        buffer = pop_search_buffer (viewer);
+        if (buffer == NULL)
+            return -1;
+        if (arv_buffer_get_status (buffer) == ARV_BUFFER_STATUS_SUCCESS)
+            n_skipped++;
+        arv_stream_push_buffer (viewer->stream, buffer);
+    }
+
+    // Measurement: all the (successful) frames received during 100 ms, at least one
+    ArvBuffer *last_frame = NULL;
+    double sum_of_max = 0;
+    int n_frames = 0;
+    gint64 const start = g_get_monotonic_time ();
+    gint64 const duration_us = (gint64) (search_measurement_duration_s * G_USEC_PER_SEC);
+    while (n_frames == 0 || g_get_monotonic_time () - start < duration_us) {
+        buffer = pop_search_buffer (viewer);
+        // No frame for too long, or only failed frames for 5 s: the camera does not work
+        if (buffer == NULL || (n_frames == 0 && g_get_monotonic_time () - start > 5 * G_USEC_PER_SEC)) {
+            if (buffer != NULL)
+                arv_stream_push_buffer (viewer->stream, buffer);
+            if (last_frame != NULL)
+                arv_stream_push_buffer (viewer->stream, last_frame);
+            return -1;
+        }
+        if (arv_buffer_get_status (buffer) != ARV_BUFFER_STATUS_SUCCESS) {
+            arv_stream_push_buffer (viewer->stream, buffer);
+            continue;
+        }
+        sum_of_max += frame_max_pixel_value (buffer);
+        n_frames++;
+        if (last_frame != NULL)
+            arv_stream_push_buffer (viewer->stream, last_frame);
+        last_frame = buffer;
+    }
+
+    // Display the last frame (the display gives the buffer back to the stream when done)
+    g_clear_object (&viewer->last_buffer);
+    viewer->last_buffer = g_object_ref (last_frame);
+    gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (last_frame, viewer->stream, viewer));
+
+    log_trace("\t%d frames measured", n_frames);
+    return sum_of_max / n_frames;
+}
+
+// Sets the exposure time and returns the one actually applied by the camera (rounded to its increment)
+static double set_search_exposure (LrdViewer *viewer, double exposure_us) {
+    arv_camera_set_exposure_time (viewer->camera, exposure_us, NULL);
+    return arv_camera_get_exposure_time (viewer->camera, NULL);
+}
+
+// Ends the search with the longest exposure time found not to saturate
+static void conclude_best_exposure_search (LrdViewer *viewer) {
+    set_search_exposure (viewer, lo_exposure_bs);
+    if (!lo_tested_bs)
+        log_warning("The image is saturated even with the shortest exposure times: using the shortest one.");
+    if (!hi_tested_bs)
+        log_info("The image is not saturated even with the longest exposure time allowed by the frame rate (%.1f us).",
+                 hi_exposure_bs);
+    finalize_best_exposure_search (viewer);
 }
 
 gboolean best_exposure_search_next_step(void *data)
 {
     LrdViewer *viewer = data;
 
-    log_trace("Next step of the search (exposure time %f us)", current_exposure_nb);
-    log_trace("\tExposure time: %f us", arv_camera_get_exposure_time (viewer->camera, NULL));
-    log_trace("\tFrame rate: %f FPS", get_actual_frame_rate (viewer));
-    int max_pixel_value = get_max_px_value(viewer, n_frames_nb, n_frames_to_skip_nb);
-    if (max_pixel_value < 0) {
-        abort_best_exposure_search(viewer);
+    // Next exposure time: the middle of the bounds, on a logarithmic scale
+    double exposure = set_search_exposure (viewer, sqrt (lo_exposure_bs * hi_exposure_bs));
+    // The camera cannot be more precise than this: the search is over
+    if (exposure <= lo_exposure_bs || exposure >= hi_exposure_bs) {
+        conclude_best_exposure_search (viewer);
         return FALSE;
     }
 
-    // Display
-    ArvBuffer *buffer = pop_search_buffer(viewer);
-    if (buffer == NULL) {
-        abort_best_exposure_search(viewer);
+    double mean_max_pixel_value = measure_mean_max_pixel_value (viewer);
+    if (mean_max_pixel_value < 0) {
+        abort_best_exposure_search (viewer);
         return FALSE;
     }
-    // Check if the buffer was successful
-    if (arv_buffer_get_status(buffer) == ARV_BUFFER_STATUS_SUCCESS) {
-        g_clear_object(&viewer->last_buffer);
-        viewer->last_buffer = g_object_ref(buffer);
-        gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(buffer, viewer->stream, viewer));
+    n_steps_bs++;
+
+    gboolean const saturated = mean_max_pixel_value >= 254.5;
+    log_debug("Exposure %.1f us: mean max pixel value %.1f (%s)", exposure, mean_max_pixel_value,
+              saturated ? "saturated" : "not saturated");
+    if (saturated) {
+        hi_exposure_bs = exposure;
+        hi_tested_bs = TRUE;
     } else {
-        arv_stream_push_buffer(viewer->stream, buffer);
+        lo_exposure_bs = exposure;
+        lo_tested_bs = TRUE;
     }
 
-    // Next step
-    switch (phase_nb) {
-        case 0:
-            if (max_pixel_value >= 255) {
-                // If, even at min exposure, we cannot have an image with all pixels under 255: we quit
-                finalize_best_exposure_search(viewer);
-                return FALSE;
-            } else {
-                // On passe à la phase 1
-                phase_nb = 1;
-                log_debug("Determination du max par increment logarithmique.");
-                min_exposure_nb = current_exposure_nb;
-                current_exposure_nb = current_exposure_nb * 2;
-                if (current_exposure_nb > max_exposure_nb)
-                    current_exposure_nb = max_exposure_nb;
-            }
-            break;
-        case 1:
-            if (max_pixel_value >= 255) {
-                // On passe à la phase 2
-                max_exposure_nb = current_exposure_nb + 10;
-                current_exposure_nb = (max_exposure_nb + min_exposure_nb) / 2;
-                phase_nb = 2;
-                log_debug("Finding the best exposure time by dichotomy.");
-            } else if (current_exposure_nb >= max_exposure_nb) {
-                // If, even at max exposure, we cannot have a 255 pixel: we quit
-                log_debug("Maximum exposition reached.");
-                finalize_best_exposure_search(viewer);
-                return FALSE;
-            } else {
-                // Augment exposure time
-                log_trace("Doubling exposure time");
-                min_exposure_nb = current_exposure_nb - 10;
-                current_exposure_nb = current_exposure_nb * 2;
-                if (current_exposure_nb > max_exposure_nb)
-                    current_exposure_nb = max_exposure_nb;
-            }
-            break;
-        case 2:
-            if (max_exposure_nb - min_exposure_nb < 1) {
-                // We reached a fine spot
-                arv_camera_set_exposure_time (viewer->camera, (int) current_exposure_nb + 1, NULL);
-                log_debug("Final exposure time: %f us", arv_camera_get_exposure_time(viewer->camera, NULL));
-
-                finalize_best_exposure_search(viewer);
-                return FALSE;
-            } else {
-                if (max_pixel_value < 255) {
-                    min_exposure_nb = current_exposure_nb;
-                } else {
-                    max_exposure_nb = current_exposure_nb;
-                }
-                current_exposure_nb = round((max_exposure_nb + min_exposure_nb) / 2);
-            }
-            break;
-        default:
-            break;
+    if (hi_exposure_bs / lo_exposure_bs < 1 + search_precision) {
+        conclude_best_exposure_search (viewer);
+        return FALSE;
     }
-
-    log_trace("Trying next exposure time: %f", current_exposure_nb);
-    arv_camera_set_exposure_time (viewer->camera, current_exposure_nb, NULL);
-    if (arv_camera_get_frame_rate (viewer->camera, NULL) != initial_frame_rate) {
-        // If the FR was diminished because the exposure time was augmented, try to compensate it
-        impose_frame_rate(viewer, initial_frame_rate);
-    }
-
     return TRUE;
 }
 
 void best_exposure_search_nonblocking (LrdViewer *viewer) {
-    // initialize
     initialize_best_exposure_search(viewer);
-    n_frames_nb = 20;
-    n_frames_to_skip_nb = 5;
-    arv_camera_get_exposure_time_bounds (viewer->camera, &min_exposure_nb, &max_exposure_nb, NULL);
-    log_trace("Minimum exposure possible: %f us", min_exposure_nb);
-    log_trace("Maximum exposure possible: %f us", max_exposure_nb);
+    search_start_time_bs = g_get_monotonic_time();
+    n_steps_bs = 0;
 
-    phase_nb = 1;
-    current_exposure_nb = arv_camera_get_exposure_time (viewer->camera, NULL);
-    initial_exposure_nb = current_exposure_nb;
-    log_trace("Current exposure: %f us", current_exposure_nb);
-
-    // start the shit
+    initial_exposure_bs = arv_camera_get_exposure_time (viewer->camera, NULL);
     initial_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    // The step duration depends on the frame rate the camera actually delivers, not on the requested one
-    double time_per_frame = 1000 / get_actual_frame_rate (viewer);
-    guint time_per_step = (uint) ((n_frames_nb + n_frames_to_skip_nb) * time_per_frame) + 50;
-    if (time_per_step < 500) {
-        time_per_step = 500;
-    }
 
-    log_trace("Current frame rate: %f FPS (%f mSPF)", get_actual_frame_rate (viewer), time_per_frame);
-    log_trace("Number of steps: %d to skip, %d to measure", n_frames_to_skip_nb, n_frames_nb);
+    // Search limits: the camera minimum, and the longest exposure that keeps the current frame rate
+    double min_exposure, max_exposure;
+    arv_camera_get_exposure_time_bounds (viewer->camera, &min_exposure, &max_exposure, NULL);
+    double frame_rate = get_actual_frame_rate (viewer);
+    if (frame_rate > 0 && G_USEC_PER_SEC / frame_rate < max_exposure)
+        max_exposure = G_USEC_PER_SEC / frame_rate;
+    if (min_exposure <= 0)
+        min_exposure = 1;
+    lo_exposure_bs = min_exposure;
+    hi_exposure_bs = max_exposure;
+    lo_tested_bs = FALSE;
+    hi_tested_bs = FALSE;
+    log_debug("Searching between %.1f us and %.1f us (current frame rate %.2f fps)", min_exposure, max_exposure, frame_rate);
 
-    log_debug("Time per step %u ms", time_per_step);
-
-    g_timeout_add (time_per_step, best_exposure_search_next_step, viewer);
+    // One measurement per step; the steps are separated by short pauses so that the window is redrawn
+    g_timeout_add (10, best_exposure_search_next_step, viewer);
 }
