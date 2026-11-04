@@ -245,7 +245,7 @@ char *obtain_new_original_filename(LrdViewer *viewer) {
     GDateTime *date;
     char *date_string;
     date = g_date_time_new_now_local();
-    date_string = g_date_time_format(date, "%Y-%m-%d-%H:%M:%S");
+    date_string = g_date_time_format(date, "%Y-%m-%d_%H-%M-%S");
     filename = g_strdup_printf("%s-%s",
                                arv_camera_get_model_name(viewer->camera, NULL),
                                date_string);

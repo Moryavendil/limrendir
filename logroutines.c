@@ -113,7 +113,7 @@ void log_initialize(LogLevel logging_level) {
     g_mkdir_with_parents(log_dir, 0755);
 
     GDateTime *now = g_date_time_new_now_local ();
-    char *date_string = g_date_time_format (now, "%Y-%m-%d-%H:%M:%S");
+    char *date_string = g_date_time_format (now, "%Y-%m-%d_%H-%M-%S");
     g_date_time_unref (now);
     char *log_basename = g_strdup_printf("logfile_%s.log", date_string);
     g_free(date_string);

@@ -224,7 +224,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     data = arv_buffer_get_data (buffer, &size);
 
     date = g_date_time_new_now_local ();
-    date_string = g_date_time_format (date, "%Y-%m-%d-%H:%M:%S");
+    date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
     filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s.raw",
                                 arv_camera_get_vendor_name (viewer->camera, NULL),
                                 arv_camera_get_device_serial_number (viewer->camera, NULL),
