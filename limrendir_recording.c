@@ -133,7 +133,7 @@ void write_meta(LrdViewer *viewer) {
     fprintf(metaFile, "viewerRegionHeight=%d\n", viewer->roi_h);
     fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
     fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
-    fprintf(metaFile, "captureFrequency=%f\n", arv_camera_get_frame_rate(viewer->camera, NULL));
+    fprintf(metaFile, "captureFrequency=%f\n", get_actual_frame_rate(viewer));
     fprintf(metaFile, "autoExposureTime=%u\n", arv_camera_get_exposure_time_auto(viewer->camera, NULL));
     fprintf(metaFile, "captureExposureTime=%f\n", arv_camera_get_exposure_time(viewer->camera, NULL));
     fprintf(metaFile, "autoGain=%u\n", arv_camera_get_gain_auto(viewer->camera, NULL));

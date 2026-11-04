@@ -355,6 +355,12 @@ void set_camera_control_widgets(LrdViewer *viewer);
 
 
 // Frame rate routines
+double get_actual_frame_rate (LrdViewer *viewer);
+
+void update_frame_rate_display (LrdViewer *viewer);
+
+double impose_frame_rate (LrdViewer *viewer, double new_frame_rate);
+
 void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus);
 
 void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer);

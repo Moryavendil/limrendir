@@ -77,7 +77,7 @@ void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer
     g_signal_handler_block (viewer->burst_nframes_spinBox, viewer->burst_nframes_changed);
     g_signal_handler_block (viewer->burst_duration_spinBox, viewer->burst_duration_changed);
 
-    double frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
+    double frame_rate = get_actual_frame_rate (viewer);
 
     if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->burst_nframes_radiobutton))) {
         // set time

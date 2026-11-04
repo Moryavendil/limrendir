@@ -253,10 +253,7 @@ apply_gc_options(LrdViewer *viewer) {
 
         // frame rate (acquisition frequency)
         if (viewer->gc_option_frame_rate != gc_option_frequency_default) {
-            arv_camera_set_frame_rate(viewer->camera, viewer->gc_option_frame_rate, NULL);
-            const double actual_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-            char *text = g_strdup_printf ("%g", actual_frame_rate);
-            gtk_entry_set_text (GTK_ENTRY(viewer->frame_rate_entry), text);
+            impose_frame_rate (viewer, viewer->gc_option_frame_rate);
         }
 
     } else if ((viewer->gc_option_frame_rate != gc_option_frequency_default) ||

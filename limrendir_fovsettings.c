@@ -14,6 +14,7 @@ void pixel_format_combo_cb (GtkComboBoxText *combo, LrdViewer *viewer)
     pixel_format = gtk_combo_box_text_get_active_text (combo);
     arv_camera_set_pixel_format_from_string (viewer->camera, pixel_format, NULL);
     g_free (pixel_format);
+    update_frame_rate_display (viewer);
 }
 
 void set_sensitive (GtkCellLayout *cell_layout,
@@ -41,6 +42,8 @@ void camera_region_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
     arv_camera_set_region (viewer->camera, x, y, width, height, NULL);
 
     update_camera_region (viewer);
+    // The region and binning change the achievable frame rate
+    update_frame_rate_display (viewer);
 }
 
 // Binning
@@ -52,6 +55,8 @@ void camera_binning_cb (GtkSpinButton *spin_button, LrdViewer *viewer) {
     arv_camera_set_binning (viewer->camera, dx, dy, NULL);
 
     update_camera_region (viewer);
+    // The region and binning change the achievable frame rate
+    update_frame_rate_display (viewer);
 }
 
 // Updates the region and binning spin boxes
