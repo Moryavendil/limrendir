@@ -200,6 +200,8 @@ struct  _LrdViewer {
     gulong camera_width_changed;
     gulong camera_height_changed;
     gulong pixel_format_changed;
+    gulong flip_vertical_clicked;
+    gulong flip_horizontal_clicked;
     gulong new_buffer_available_video;
     gulong recording_button_changed;
     gulong burst_control_changed;
@@ -299,6 +301,8 @@ void rotate_cw_cb (GtkButton *button, LrdViewer *viewer);
 void flip_horizontal_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer);
+
+void reset_image_transform (LrdViewer *viewer);
 
 // Snapshot saving
 gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const char *mime_type, GError **error);

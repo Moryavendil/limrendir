@@ -17,7 +17,7 @@ top of `limrendir.h`).
 | Aravis commit | Date | Summary | Status | Notes | Limrendir commit |
 |---|---|---|---|---|---|
 | `1fc8310cb` | 2023-02-10 | Component selector | 🔴 undecided | Multi-part cameras only. Large UI change (~750 lines). | |
-| `c4a70719e` | 2023-02-10 | Reset flip button state | 🔴 pending | Reset the flip toggles when switching camera. | |
+| `c4a70719e` | 2023-02-10 | Reset flip button state | 🟢 ported | Done in `start_video` (every pipeline restart, including after recordings), and also resets `viewer->flip_*`, which upstream leaves stale. | |
 | `738bd0f44` | 2023-02-10 | Hide binning or offset controls if not available | 🔴 pending | Limrendir already checks availability in `limrendir_modechange.c` (sensitivity); compare and hide instead. | |
 | `7bfa356dd` | 2023-02-10 | Make the initial window a bit bigger | 🟢 skipped | Limrendir has its own layout. | |
 | `6e1311b8b` | 2023-07-25 | Back to 10 buffers in the stream queue | 🟢 covered | Limrendir uses its own buffer counts (`n_buffers_streaming`, `n_buffers`). | |

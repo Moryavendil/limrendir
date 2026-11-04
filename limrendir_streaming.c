@@ -454,7 +454,7 @@ gboolean start_video (LrdViewer *viewer)
 
     stop_video (viewer);
 
-    viewer->rotation = 0;
+    reset_image_transform (viewer);
     viewer->stream = create_camera_stream (viewer, stream_video_cb);
     if (viewer->stream == NULL)
         return FALSE;

@@ -163,6 +163,22 @@ void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer)
     update_transform (viewer);
 }
 
+// Back to no rotation and no flip, with the flip buttons released (from aravis c4a70719e).
+// Called when a new pipeline is created, since its videoflip element starts untransformed.
+void reset_image_transform (LrdViewer *viewer)
+{
+    viewer->rotation = 0;
+    viewer->flip_horizontal = FALSE;
+    viewer->flip_vertical = FALSE;
+
+    g_signal_handler_block (viewer->flip_vertical_toggle, viewer->flip_vertical_clicked);
+    g_signal_handler_block (viewer->flip_horizontal_toggle, viewer->flip_horizontal_clicked);
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->flip_vertical_toggle), FALSE);
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->flip_horizontal_toggle), FALSE);
+    g_signal_handler_unblock (viewer->flip_vertical_toggle, viewer->flip_vertical_clicked);
+    g_signal_handler_unblock (viewer->flip_horizontal_toggle, viewer->flip_horizontal_clicked);
+}
+
 // Snapshot saving
 gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const char *mime_type, GError **error)
 {
