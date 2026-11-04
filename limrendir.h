@@ -1,4 +1,14 @@
 #include <arv.h>
+
+// Compatibility with Aravis >= 0.9 (API 0.10), which changed a few signatures
+#if ARAVIS_CHECK_VERSION(0, 9, 0)
+// arv_camera_create_stream gained a GDestroyNotify argument (before the GError**)
+#define arv_camera_create_stream(camera, callback, user_data, error) \
+        arv_camera_create_stream((camera), (callback), (user_data), NULL, (error))
+// arv_stream_get_n_buffers was replaced by arv_stream_get_n_owned_buffers
+#define arv_stream_get_n_buffers(stream, n_input_buffers, n_output_buffers) \
+        arv_stream_get_n_owned_buffers((stream), (n_input_buffers), (n_output_buffers), NULL)
+#endif
 #include <math.h>
 #include <glib-object.h>
 #include <gtk/gtk.h>

@@ -19,7 +19,8 @@ pkg_check_modules(GST REQUIRED gstreamer-1.0
         )
 
 # ARV (Aravis)
-pkg_check_modules(ARAVIS REQUIRED aravis-0.8)
+# Aravis encodes its API version in the pkg-config name; accept any supported one (newest first)
+pkg_search_module(ARAVIS REQUIRED aravis-0.10 aravis-0.8)
 
 include_directories(.)
 
