@@ -1547,6 +1547,31 @@ gboolean stop_recording (LrdViewer *viewer) {
         g_signal_emit_by_name (GST_APP_SRC (viewer->appsrc), "end-of-stream", &ret);
     }
 
+    // For video files written by GStreamer, wait for the end of stream to go through the whole pipeline
+    // (encoder, muxer, file) before the pipeline is destroyed (in start_video below): the muxer finalizes
+    // the file at that moment (e.g. the MP4 index), without it the file can be truncated or unreadable.
+    gboolean gstreamer_recording = viewer->record_type == RECORDTYPE_FLV || viewer->record_type == RECORDTYPE_MP4 ||
+                                   viewer->record_type == RECORDTYPE_MKV || viewer->record_type == RECORDTYPE_AVI;
+    if (gstreamer_recording && GST_IS_PIPELINE (viewer->pipeline)) {
+        const GstClockTime eos_timeout = 10 * GST_SECOND;
+        log_debug("Waiting for the video file to be finalized...");
+        GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
+        GstMessage *message = gst_bus_timed_pop_filtered (bus, eos_timeout, GST_MESSAGE_EOS | GST_MESSAGE_ERROR);
+        if (message == NULL) {
+            log_warning("The video file was not finalized after %" G_GUINT64_FORMAT " s: it may be truncated.",
+                        eos_timeout / GST_SECOND);
+        } else if (GST_MESSAGE_TYPE (message) == GST_MESSAGE_ERROR) {
+            GError *error = NULL;
+            gst_message_parse_error (message, &error, NULL);
+            log_warning("Error while finalizing the video file: %s", error->message);
+            g_clear_error (&error);
+        } else {
+            log_debug("Video file finalized.");
+        }
+        g_clear_pointer (&message, gst_message_unref);
+        gst_object_unref (bus);
+    }
+
     close_files();
 
     log_info("End of recording.");
