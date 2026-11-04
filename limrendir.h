@@ -474,6 +474,14 @@ long clock_millis(struct timespec t);
 /* time difference in milliseconds */
 long clock_diff_millis(struct timespec t1, struct timespec t2);
 
+// Display pipeline: get_display_caps_string checks the pixel format (NULL if it cannot be displayed),
+// create_display_pipeline builds appsrc -> ... -> viewer->transform, add_display_sink adds viewer->videosink
+// (to be linked by the caller) and start_display_pipeline plays it.
+const char *get_display_caps_string (LrdViewer *viewer);
+void create_display_pipeline (LrdViewer *viewer, const char *caps_string);
+void add_display_sink (LrdViewer *viewer);
+void start_display_pipeline (LrdViewer *viewer, const char *caps_string);
+
 // Applies the GigE Vision settings chosen on the command line to the stream (nothing to do for other cameras)
 void configure_stream (LrdViewer *viewer);
 

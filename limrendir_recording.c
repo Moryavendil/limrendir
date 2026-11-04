@@ -671,95 +671,15 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
 // sets up the display part (we want to see the video we're recording
 static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *viewer) {
     log_debug("Preparing to video display (gstreamer videostream).");
-    GstElement *videoconvert;
-    GstCaps *caps;
-    gint width, height; // image geometry
-    ArvPixelFormat pixel_format; // The pixel format used
-    const char *caps_string;
 
-    log_trace("    Retrieving pixel format.");
-    pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
-        stop_video (viewer);
+    const char *caps_string = get_display_caps_string (viewer);
+    if (caps_string == NULL)
         return FALSE;
-    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
-        stop_video (viewer);
-        return FALSE;
-    }
 
-    log_trace("    Creating gstreamer pipeline.");
-    viewer->pipeline = gst_pipeline_new ("pipeline");
-    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
-    videoconvert = gst_element_factory_make ("videoconvert", NULL);
-    viewer->transform = gst_element_factory_make ("videoflip", NULL);
-
-    log_trace("    Adding elements to the gstreamer pipeline.");
-    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
-
-    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
-        log_trace("    The pixel format has prefix 'video/x-bayer', adding a bayer2rgb element to the pipeline.");
-        GstElement *bayer2rgb;
-
-        bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
-        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
-    } else {
-        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
-    }
-
-    if (has_gtksink || has_gtkglsink) {
-        log_trace("    A video sink of type 'gtksink' is used.");
-        GtkWidget *video_widget;
-        viewer->videosink = gst_element_factory_make ("gtksink", NULL);
-        gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->videosink, NULL);
-        gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        log_trace("    A video sink of type 'autovideosink'is used.");
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
-        gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-    }
-
-    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
-
-    log_trace("    Setting source caps.");
-    caps = gst_caps_from_string (caps_string);
-    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-    gst_caps_set_simple (caps,
-                         "width", G_TYPE_INT, width,
-                         "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
-                         NULL);
-    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
-    gst_caps_unref (caps);
-
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
-
-    log_trace("    Bus management.");
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus;
-
-        bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
-
-    log_trace("    Pipeline in playing state.");
-    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
-
-    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
-    viewer->last_n_images = 0;
-    viewer->last_n_bytes = 0;
-    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+    create_display_pipeline (viewer, caps_string);
+    add_display_sink (viewer);
+    gst_element_link (viewer->transform, viewer->videosink);
+    start_display_pipeline (viewer, caps_string);
 
     return TRUE;
 }
@@ -842,45 +762,13 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     }
 
     log_debug("Preparing to video display (gstreamer-style) recording.");
-    GstElement *videoconvert;
-    GstCaps *caps;
-    gint width, height; // image geometry
-    ArvPixelFormat pixel_format; // The pixel format used
-    const char *caps_string; // the pixel format in string format
     gboolean link_success; // boolean to know if a link creation went ok
 
-    log_trace("    Retrieving pixel format.");
-    pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
-        stop_video (viewer);
+    const char *caps_string = get_display_caps_string (viewer);
+    if (caps_string == NULL)
         return FALSE;
-    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
-        stop_video (viewer);
-        return FALSE;
-    }
 
-    log_trace("    Creating gstreamer pipeline.");
-    viewer->pipeline = gst_pipeline_new ("pipeline");
-    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
-    videoconvert = gst_element_factory_make ("videoconvert", NULL);
-    viewer->transform = gst_element_factory_make ("videoflip", NULL);
-
-    log_trace("    Adding elements to the gstreamer pipeline.");
-    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
-
-    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
-        log_trace("    The pixel format has prefix 'video/x-bayer', adding a bayer2rgb element to the pipeline.");
-        GstElement *bayer2rgb;
-
-        bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
-        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
-    } else {
-        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
-    }
+    create_display_pipeline (viewer, caps_string);
 
     // tee element
     GstElement *tee = gst_element_factory_make ("tee", NULL);
@@ -891,21 +779,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     // DISPLAY PIPELINE
     GstPad *tee_display_src_pad = gst_element_get_request_pad (tee, "src_%u");
 
-    if (has_gtksink || has_gtkglsink) {
-        log_trace("    A video sink of type 'gtksink' is used.");
-        viewer->videosink = gst_element_factory_make ("gtksink", NULL);
-        // integrate the video in the window
-        GtkWidget *video_widget;
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        log_trace("    A video sink of type 'autovideosink'is used.");
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-    }
-    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
+    add_display_sink (viewer);
 
     // Fuck this line.
     // For some reason if we don't add it everything freezes .
@@ -916,7 +790,6 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     // But fuck it.
     g_object_set(G_OBJECT (viewer->videosink), "async", FALSE, NULL);
 
-    gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
     link_success = link_pad_to_element (tee_display_src_pad, viewer->videosink);
     if (GST_PAD_LINK_FAILED (link_success)) {
         log_debug("Link from the tee to the display video sink failed.");
@@ -1066,36 +939,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     gst_object_unref (GST_OBJECT (tee_record_src_pad));
 
-
-    log_trace("    Setting source caps.");
-    caps = gst_caps_from_string (caps_string);
-    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-    gst_caps_set_simple (caps,
-                         "width", G_TYPE_INT, width,
-                         "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
-                         NULL);
-    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
-    gst_caps_unref (caps);
-
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
-
-    log_trace("    Bus management.");
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus;
-
-        bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
-
-    log_trace("    Pipeline in playing state.");
-    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
-
-    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
-    viewer->last_n_images = 0;
-    viewer->last_n_bytes = 0;
-    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+    start_display_pipeline (viewer, caps_string);
 
     return TRUE;
 }
