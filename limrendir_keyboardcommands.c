@@ -24,6 +24,7 @@ void help(LrdViewer *viewer) {
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
         printf("a .................. See the largest possible field of view                     \n");
         printf("z .................. Zoom on the center of the current field of view            \n");
+        printf("Z .................. Zoom out (x2) around the center of the field of view        \n");
         printf("r .................. Toggle Region Of Interest mode                             \n");
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
@@ -63,6 +64,7 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
                                                           "a\n"
                                                           "z\n"
+                                                          "Z\n"
                                                          "r\n"
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
@@ -71,6 +73,7 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
                                                                   "Zoom at the center of the FOV\n"
+                                                                  "Zoom out (x2)\n"
                                                                  "Toggle Region Of Interest mode\n"
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
@@ -363,6 +366,73 @@ void zoomin(LrdViewer *viewer) {
     log_trace("====== ZOOM End");
 }
 
+// Zooms out by 2, around the center of the current field of view. A ROI in use is kept where it was in the image.
+void zoomout(LrdViewer *viewer) {
+    log_debug("Unzooming");
+    log_trace("====== UNZOOM Start");
+
+    gint old_x, old_y, old_w, old_h;
+    arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
+    log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
+
+    int old_roi_x = viewer->roi_x;
+    int old_roi_y = viewer->roi_y;
+    int old_roi_w = viewer->roi_w;
+    int old_roi_h = viewer->roi_h;
+    log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", old_roi_x, old_roi_y, old_roi_w, old_roi_h);
+    gboolean using_ROI = viewer->show_roi;
+
+    see_whole_field_of_view(viewer);
+
+    gint full_x, full_y, full_w, full_h;
+    arv_camera_get_region (viewer->camera, &full_x, &full_y, &full_w, &full_h, NULL);
+    if (full_x == old_x && full_y == old_y && full_w == old_w && full_h == old_h) {
+        // see_whole_field_of_view did nothing (and left the ROI untouched)
+        log_debug("Already seeing the largest possible field of view.");
+        log_trace("====== UNZOOM End");
+        return;
+    }
+
+    // Twice the old field of view, with the same center (in the coordinates of the whole field of view)
+    viewer->roi_w = old_w*2;
+    viewer->roi_h = old_h*2;
+    viewer->roi_x = old_x - full_x - old_w/2;
+    viewer->roi_y = old_y - full_y - old_h/2;
+    // Near an edge, shift the window back inside instead of shrinking it
+    if (viewer->roi_x + viewer->roi_w > full_w)
+        viewer->roi_x = full_w - viewer->roi_w;
+    if (viewer->roi_x < 0)
+        viewer->roi_x = 0;
+    if (viewer->roi_y + viewer->roi_h > full_h)
+        viewer->roi_y = full_h - viewer->roi_h;
+    if (viewer->roi_y < 0)
+        viewer->roi_y = 0;
+    constrain_roi(viewer);
+    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+
+    // No need to crop (and restart the camera once more) if the window is the whole field of view
+    if (viewer->roi_x != 0 || viewer->roi_y != 0 || viewer->roi_w != full_w || viewer->roi_h != full_h) {
+        viewer->show_roi = gtk_true();
+        crop_to_roi(viewer);
+    }
+
+    viewer->show_roi = gtk_false();
+
+    if (using_ROI && is_roi_possible(viewer)) {
+        // Same place in the image: the old ROI was relative to the old region
+        gint new_x, new_y;
+        arv_camera_get_region (viewer->camera, &new_x, &new_y, NULL, NULL, NULL);
+        viewer->roi_x = old_roi_x + old_x - new_x;
+        viewer->roi_y = old_roi_y + old_y - new_y;
+        viewer->roi_w = old_roi_w;
+        viewer->roi_h = old_roi_h;
+        constrain_roi(viewer);
+        viewer->show_roi = gtk_true();
+    }
+
+    log_trace("====== UNZOOM End");
+}
+
 // TOGGLE GRID (g)
 void toggle_grid(LrdViewer *viewer) {
     if (viewer->grid_type == GRID_NOGRID) {
@@ -475,6 +545,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
             case GDK_KEY_z:
                 zoomin(viewer);
+                break;
+            case GDK_KEY_Z:
+                zoomout(viewer);
                 break;
 
             case GDK_KEY_Up:
