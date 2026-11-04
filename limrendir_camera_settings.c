@@ -506,15 +506,9 @@ void initialize_best_exposure_search (LrdViewer *viewer) {
     log_info("Searching for the best exposure time...");
     stop_key_listener(viewer);
     g_signal_handler_block (viewer->stream, viewer->new_buffer_available_video);
-    gtk_widget_set_sensitive (viewer->camera_settings_button, FALSE);
-    gtk_widget_set_sensitive (viewer->acquisition_settings_button, FALSE);
-    gtk_widget_set_sensitive (viewer->back_button, FALSE);
-    gtk_widget_set_sensitive (viewer->snapshot_button, FALSE);
-    gtk_widget_set_sensitive (viewer->rotate_cw_button, FALSE);
-    gtk_widget_set_sensitive (viewer->flip_vertical_toggle, FALSE);
-    gtk_widget_set_sensitive (viewer->flip_horizontal_toggle, FALSE);
-    gtk_widget_set_sensitive (viewer->record_button, FALSE);
-    gtk_widget_set_sensitive (viewer->help_button, FALSE);
+    set_video_controls_sensitive(viewer, FALSE);
+    gtk_widget_set_sensitive(viewer->record_button, FALSE);
+    gtk_widget_set_sensitive(viewer->help_button, FALSE);
     update_exposure_cb(viewer);
     log_trace("Starting best exposure search.");
 }
@@ -524,15 +518,9 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     update_exposure_cb(viewer);
     log_info("Best exposure time: %f us", arv_camera_get_exposure_time(viewer->camera, NULL));
     g_signal_handler_unblock(viewer->stream, viewer->new_buffer_available_video);
-    gtk_widget_set_sensitive(viewer->camera_settings_button, TRUE);
-    gtk_widget_set_sensitive(viewer->acquisition_settings_button, TRUE);
-    gtk_widget_set_sensitive(viewer->back_button, TRUE);
-    gtk_widget_set_sensitive(viewer->snapshot_button, TRUE);
-    gtk_widget_set_sensitive(viewer->rotate_cw_button, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_vertical_toggle, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, TRUE);
-    gtk_widget_set_sensitive (viewer->record_button, TRUE);
-    gtk_widget_set_sensitive (viewer->help_button, TRUE);
+    set_video_controls_sensitive(viewer, TRUE);
+    gtk_widget_set_sensitive(viewer->record_button, TRUE);
+    gtk_widget_set_sensitive(viewer->help_button, TRUE);
     start_key_listener(viewer);
     impose_frame_rate(viewer, initial_frame_rate);
     apply_max_frame_rate_if_wanted(NULL, viewer);

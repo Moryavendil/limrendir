@@ -292,6 +292,9 @@ typedef enum {
 void select_mode (LrdViewer *viewer, TrnViewerMode mode);
 
 // VIDEO MODE
+// Enables or disables the controls of the video mode (settings, snapshot, back, rotation, flips)
+void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive);
+
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer);
 
 // Image transforms

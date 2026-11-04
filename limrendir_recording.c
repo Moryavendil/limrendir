@@ -1191,17 +1191,11 @@ gboolean start_recording (LrdViewer *viewer) {
             dataset_core_name = viewer->dataset_name;
         log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-        gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
-        gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
-        gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+        set_video_controls_sensitive(viewer, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
         gtk_widget_set_sensitive(viewer->help_description_2, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_3, FALSE);
         gtk_widget_set_sensitive(viewer->help_description_3, FALSE);
-        gtk_widget_set_sensitive(viewer->back_button, FALSE);
-        gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
 
         return successful_launch;
     } else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
@@ -1220,15 +1214,8 @@ gboolean start_recording (LrdViewer *viewer) {
                     dataset_core_name = viewer->dataset_name;
                 log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-                gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
-                gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
-                gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+                set_video_controls_sensitive(viewer, FALSE);
                 gtk_widget_set_sensitive(viewer->record_button, FALSE);
-                gtk_widget_set_sensitive(viewer->back_button, FALSE);
-                gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
-                gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
-                gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
-
                 gtk_widget_set_sensitive(viewer->help_button, FALSE);
 
 
@@ -1297,17 +1284,11 @@ void stop_recording (LrdViewer *viewer) {
 
     log_info("End of recording.");
 
-    gtk_widget_set_sensitive (viewer->camera_settings_button, TRUE);
-    gtk_widget_set_sensitive (viewer->acquisition_settings_button, TRUE);
-    gtk_widget_set_sensitive (viewer->snapshot_button, TRUE);
+    set_video_controls_sensitive(viewer, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_3, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_3, TRUE);
-    gtk_widget_set_sensitive(viewer->back_button, TRUE);
-    gtk_widget_set_sensitive(viewer->rotate_cw_button, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_vertical_toggle, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, TRUE);
     if (is_record_button_active(viewer)) {
         g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);

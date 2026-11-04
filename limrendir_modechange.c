@@ -105,6 +105,18 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 
 }
 
+// Enables or disables the video mode controls that must not be used during a recording or an exposure search
+void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
+{
+    gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
+    gtk_widget_set_sensitive (viewer->acquisition_settings_button, sensitive);
+    gtk_widget_set_sensitive (viewer->snapshot_button, sensitive);
+    gtk_widget_set_sensitive (viewer->back_button, sensitive);
+    gtk_widget_set_sensitive (viewer->rotate_cw_button, sensitive);
+    gtk_widget_set_sensitive (viewer->flip_vertical_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->flip_horizontal_toggle, sensitive);
+}
+
 // VIDEO MODE
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer)
 {
