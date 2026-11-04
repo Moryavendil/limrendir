@@ -511,6 +511,41 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
 }
 
 
+// FRAME NUMBERING
+// The stamps file contains a running frame number, starting at 1 for the first recorded frame,
+// that keeps track of lost frames (gaps) and does not wrap around like the camera frame id may.
+typedef struct {
+    gboolean first_frame;   // TRUE until the first frame of the recording is numbered
+    guint64 last_frame_id;  // camera frame id of the previous frame
+    guint32 running_number; // running frame number of the previous frame
+} FrameNumbering;
+
+static void frame_numbering_reset (FrameNumbering *numbering) {
+    numbering->first_frame = TRUE;
+    numbering->last_frame_id = 0;
+    numbering->running_number = 0;
+}
+
+static guint32 frame_numbering_next (FrameNumbering *numbering, guint64 frame_id) {
+    // GigE Vision (v1) frame ids are 16 bits and wrap around, skipping 0
+    const guint64 frame_id_modulus = 1 << 16;
+
+    if (numbering->first_frame) {
+        numbering->first_frame = FALSE;
+        numbering->running_number = 1;
+    } else if (frame_id < numbering->last_frame_id) {
+        numbering->running_number += (frame_id + frame_id_modulus) - numbering->last_frame_id - 1; // ATTENTION AU -1 cf doc
+    } else {
+        numbering->running_number += frame_id - numbering->last_frame_id;
+    }
+    numbering->last_frame_id = frame_id;
+    return numbering->running_number;
+}
+
+// Numbering of the frames of the current user-controlled recording (record_buffer)
+static FrameNumbering record_numbering;
+
+
 // RECORDING LIKE GEVCAPTURE
 
 // The most important function here... This is the callback for the new buffer signal
@@ -519,13 +554,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
     ArvBuffer *buffer;
     gint n_input_buffers, n_output_buffers;
 
-    guint32 frame_id;
-    // remember previous frame id to detect overflow
-    static guint32 old_frame_id = 0;
-    // frame_id that does not wrap around (until guint32 itself overflows)
-    static guint32 unwrapped_frame_id = 0;
-    // wrapping modulus
-    const guint32 frame_id_modulus = 1 << 16;
+    guint32 running_number;
 
     uint8_t *image_data;
     size_t size;
@@ -570,20 +599,11 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
             continue;
         }
 
-        // unwrap running frame number
-        frame_id = arv_buffer_get_frame_id(buffer);
-        if (unwrapped_frame_id == 0) {
-            old_frame_id = frame_id - 1;
-        }
-        if (frame_id < old_frame_id)
-            unwrapped_frame_id += (frame_id + frame_id_modulus) - old_frame_id - 1; // ATTENTION AU -1 cf doc
-        else
-            unwrapped_frame_id += frame_id - old_frame_id;
-        old_frame_id = frame_id;
+        running_number = frame_numbering_next(&record_numbering, arv_buffer_get_frame_id(buffer));
 
         // write stamps data
         fprintf(stampFile, "%d\t%ld\t%ld\n",
-                unwrapped_frame_id,                 // running frame number, guint32
+                running_number,                     // running frame number, guint32
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
                 clock_millis(clock_now_recording));        // computer time (ms)
 
@@ -729,6 +749,9 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
 
     // The time for the video snapshot update
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
+
+    // Each recording numbers its frames from 1
+    frame_numbering_reset(&record_numbering);
 
     // Files writing
     open_files(viewer);
@@ -1271,13 +1294,9 @@ static gboolean bourrin_recording(void *data)
 
     ArvBuffer *buffer;
 
-    guint32 frame_id;
-    // remember previous frame id to detect overflow
-    guint32 old_frame_id = 0;
-    // frame_id that does not wrap around (until guint32 itself overflows)
-    guint32 unwrapped_frame_id = 0;
-    // wrapping modulus
-    guint32 frame_id_modulus = 1 << 16;
+    FrameNumbering burst_numbering;
+    frame_numbering_reset(&burst_numbering);
+    guint32 running_number;
 
     uint8_t *image_data;
     size_t size;
@@ -1313,20 +1332,11 @@ static gboolean bourrin_recording(void *data)
 
         if (record_this_buffer) {
 
-            // unwrap running frame number
-            frame_id = arv_buffer_get_frame_id(buffer);
-            if (unwrapped_frame_id == 0) {
-                old_frame_id = frame_id - 1;
-            }
-            if (frame_id < old_frame_id)
-                unwrapped_frame_id += (frame_id + frame_id_modulus) - old_frame_id - 1; // ATTENTION AU -1 cf doc
-            else
-                unwrapped_frame_id += frame_id - old_frame_id;
-            old_frame_id = frame_id;
+            running_number = frame_numbering_next(&burst_numbering, arv_buffer_get_frame_id(buffer));
 
             // write stamps data
             fprintf(stampFile, "%d\t%ld\t%ld\n",
-                    unwrapped_frame_id,                          // running frame number, guint32
+                    running_number,                              // running frame number, guint32
                     arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
                     clock_millis(clock_now_recording));       // computer time (ms)
 
