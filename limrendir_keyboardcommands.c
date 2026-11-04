@@ -224,7 +224,7 @@ void crop_to_roi(LrdViewer *viewer) {
     log_trace("New target region: x: %d ; y: %d ; w: %d ; h: %d", new_x, new_y, new_width, new_height);
 
     new_x = new_x - new_x%arv_camera_get_x_offset_increment (viewer->camera, NULL);
-    new_y = new_y - new_x%arv_camera_get_y_offset_increment (viewer->camera, NULL);
+    new_y = new_y - new_y%arv_camera_get_y_offset_increment (viewer->camera, NULL);
     new_width = new_width - new_width%arv_camera_get_width_increment (viewer->camera, NULL);
     new_height = new_height - new_height%arv_camera_get_height_increment (viewer->camera, NULL);
 
