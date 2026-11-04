@@ -595,7 +595,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         fprintf(stderr, "No buffer to output (wtf?) - There should be a '0': \n");
     } else if (n_output_buffers > 1) {
         fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
-        if (n_output_buffers > n_buffers/2) {
+        if ((unsigned) n_output_buffers > n_buffers/2) {
             fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%u)\n", n_output_buffers, n_buffers);
         }
     }
@@ -634,7 +634,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         if (viewer->show_roi) {
             int width, height;
             arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == viewer->roi_w*viewer->roi_h) {
+            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
                 // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
             } else if (width == viewer->roi_w) {
@@ -807,8 +807,6 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     GstElement *queue = NULL;
     // codecs
     GstElement *x264enc = NULL;
-    GstElement *omxh264enc = NULL;
-    GstElement *h264parse = NULL;
     GstElement *xvidenc = NULL;
     GstElement *avenc_ffv1 = NULL;
     // filetypes
@@ -1069,7 +1067,7 @@ static gboolean bourrin_recording(void *data)
         if (viewer->show_roi) {
             int width, height;
             arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == viewer->roi_w * viewer->roi_h) {
+            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
                 // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
             } else if (width == viewer->roi_w) {

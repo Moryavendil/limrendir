@@ -264,7 +264,6 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
 static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
 {
     ArvBuffer *arv_buffer;
-    gint n_input_buffers, n_output_buffers;
 
     arv_buffer = arv_stream_pop_buffer (stream);
     if (arv_buffer == NULL)

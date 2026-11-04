@@ -591,7 +591,7 @@ int get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip) {
             size_t size;
 
             image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-            for (int i = 0; i < size; i++) {
+            for (size_t i = 0; i < size; i++) {
                 if (image_data[i] > max_pixel_value)
                     max_pixel_value = image_data[i];
             }

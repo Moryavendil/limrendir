@@ -163,7 +163,6 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
     char *camera_id = NULL;
 
     if (viewer->gc_option_camera_name != NULL) {
-        gboolean success = FALSE;
         for (int i_camera = 0; i_camera < number_of_available_cameras; i_camera++) {
             gtk_tree_model_iter_nth_child(tree_model, &iter, NULL, i_camera);
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);

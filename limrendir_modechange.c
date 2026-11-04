@@ -439,7 +439,7 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
     pixel_formats = arv_camera_dup_available_pixel_formats (viewer->camera, &n_pixel_formats, NULL);
     g_assert (n_pixel_formats == n_pixel_format_strings);
     pixel_format_string = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
-    for (i = 0; i < n_pixel_formats; i++) {
+    for (i = 0; i < (gint) n_pixel_formats; i++) {
         const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_formats[i]);
         gboolean valid = FALSE;
 
