@@ -1041,12 +1041,7 @@ Copyright (C)
                     <property name="label-yalign">0</property>
                     <property name="shadow-type">none</property>
                     <child>
-                      <object class="GtkButton">
-                        <property name="label" translatable="yes">button</property>
-                        <property name="visible">True</property>
-                        <property name="can-focus">True</property>
-                        <property name="receives-default">True</property>
-                      </object>
+                      <placeholder/>
                     </child>
                     <child type="label_item">
                       <placeholder/>
