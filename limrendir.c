@@ -358,8 +358,8 @@ activate (GApplication *application)
     // Grid
     viewer->grid_type = GRID_NOGRID;
 
-// FOR THE LINE BELOW TO WORK, PUT THE FILE "limrendir.ui" IN THE FOLDER WITH THE EXECUTABLE
-    builder = gtk_builder_new_from_file ("limrendir.ui");
+    // limrendir.ui is embedded in the executable (see limrendir.gresource.xml)
+    builder = gtk_builder_new_from_resource ("/org/limrendir/limrendir.ui");
 
 	viewer->main_window = GTK_WIDGET (gtk_builder_get_object (builder, "main_window"));
 	viewer->main_stack = GTK_WIDGET (gtk_builder_get_object (builder, "main_stack"));

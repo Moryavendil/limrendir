@@ -27,7 +27,9 @@ Then download this project and compile it:
     cmake . && make
     ./limrendir
 
-Use option `--help` to know about the available options.
+Use option `--help` to know about the available options. Limrendir can be run from any folder.
+
+The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
 
 Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
 

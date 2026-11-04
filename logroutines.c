@@ -119,13 +119,15 @@ void log_write(LogLevel level, const char *fmt, ...)
 void log_initialize(LogLevel logging_level) {
     log_level = logging_level;
 
-    // Si le dossier existe deja, le mkdir echoue et osef.
-    mkdir("logs", S_IRWXU | S_IRWXG | S_IRWXO);
+    // Logs go to the user's state folder (usually ~/.local/state/limrendir/logs), whatever the current folder
+    char *log_dir = g_build_filename(g_get_user_state_dir(), "limrendir", "logs", NULL);
+    g_mkdir_with_parents(log_dir, 0755);
 
-    char const *core = "logs/logfile";
     char const *date_string = g_date_time_format (g_date_time_new_now_local (), "%Y-%m-%d-%H:%M:%S");
-    char const *extension = ".log";
-    log_filename = g_strdup_printf("%s_%s%s", core, date_string, extension);
+    char *log_basename = g_strdup_printf("logfile_%s.log", date_string);
+    log_filename = g_build_filename(log_dir, log_basename, NULL);
+    g_free(log_basename);
+    g_free(log_dir);
     log_file = fopen(log_filename, "w");
     if (log_file != NULL) {
         setvbuf(log_file, NULL, _IOLBF, 0);
@@ -134,6 +136,8 @@ void log_initialize(LogLevel logging_level) {
         // Logging goes on in the terminal only
         log_warning("Could not create the log file '%s' (%s): logs are only shown here.", log_filename, g_strerror(saved_errno));
     }
+    if (log_file != NULL)
+        log_info("Logs for this session are saved in '%s'", log_filename);
 
     log_trace("Log level: %d", log_level);
 }
