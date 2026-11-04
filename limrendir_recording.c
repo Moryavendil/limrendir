@@ -885,7 +885,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
 
     // DISPLAY PIPELINE
-    GstPad *tee_display_src_pad = gst_element_get_request_pad (tee, "src_%u");
+    GstPad *tee_display_src_pad = gst_element_request_pad_simple (tee, "src_%u");
 
     add_display_sink (viewer);
 
@@ -915,7 +915,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     // RECORD PIPELINE
     // Todo: try also : multifilesink element to save every buffer in its own file ?
-    GstPad *tee_record_src_pad = gst_element_get_request_pad (tee, "src_%u");
+    GstPad *tee_record_src_pad = gst_element_request_pad_simple (tee, "src_%u");
     GstElement *filesink;
     GstElement *videoconvert_rec = NULL;
     GstElement *queue = NULL;
@@ -940,7 +940,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             x264enc = gst_element_factory_make ("x264enc", NULL);
             flvmux = gst_element_factory_make ("flvmux", NULL);
-            GstPad *flvmux_sink_pad = gst_element_get_request_pad (flvmux, "video");
+            GstPad *flvmux_sink_pad = gst_element_request_pad_simple (flvmux, "video");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -1008,7 +1008,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             avenc_ffv1 = gst_element_factory_make ("avenc_ffv1", NULL);
             matroskamux = gst_element_factory_make ("matroskamux", NULL);
-            GstPad *matroskamux_sink_pad = gst_element_get_request_pad (matroskamux, "video_%u");
+            GstPad *matroskamux_sink_pad = gst_element_request_pad_simple (matroskamux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -1037,7 +1037,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             xvidenc = gst_element_factory_make ("xvidenc", NULL);
             avimux = gst_element_factory_make ("avimux", NULL);
-            GstPad *avimux_sink_pad = gst_element_get_request_pad (avimux, "video_%u");
+            GstPad *avimux_sink_pad = gst_element_request_pad_simple (avimux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);

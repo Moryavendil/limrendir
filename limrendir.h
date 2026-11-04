@@ -18,6 +18,12 @@
 #include <gst/video/video.h>
 #include <stdint.h>
 
+// Compatibility with GStreamer < 1.20, where gst_element_request_pad_simple was still called
+// gst_element_get_request_pad (deprecated since 1.20)
+#if !GST_CHECK_VERSION(1, 20, 0)
+#define gst_element_request_pad_simple(element, name) gst_element_get_request_pad ((element), (name))
+#endif
+
 G_BEGIN_DECLS
 
 #define LIMRENDIR_VERSION "0.7.0"
