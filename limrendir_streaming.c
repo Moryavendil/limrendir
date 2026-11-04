@@ -457,8 +457,10 @@ void add_display_sink (LrdViewer *viewer)
     g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
 }
 
-// Sets the source caps, plays the pipeline and starts the status bar updates
-void start_display_pipeline (LrdViewer *viewer, const char *caps_string)
+// Sets the source caps, plays the pipeline and starts the status bar updates.
+// With framerate_n = 0, frames are timestamped when they arrive (live display). Otherwise the stream has this
+// fixed frame rate and the caller sets the timestamps of the frames itself.
+void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint framerate_n, gint framerate_d)
 {
     gint width, height;
 
@@ -468,12 +470,13 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string)
     gst_caps_set_simple (caps,
                          "width", G_TYPE_INT, width,
                          "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
+                         "framerate", GST_TYPE_FRACTION, framerate_n, framerate_d,
                          NULL);
     gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
     gst_caps_unref (caps);
 
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
+    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE,
+                 "do-timestamp", framerate_n == 0, NULL);
 
     log_trace("    Bus management.");
     if (!has_gtkglsink && !has_gtksink) {
@@ -523,7 +526,7 @@ gboolean start_video (LrdViewer *viewer)
     create_display_pipeline (viewer, caps_string);
     add_display_sink (viewer);
     gst_element_link (viewer->transform, viewer->videosink);
-    start_display_pipeline (viewer, caps_string);
+    start_display_pipeline (viewer, caps_string, 0, 1);
 
     viewer->new_buffer_available_video = g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (new_buffer_cb), viewer);
 

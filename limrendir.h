@@ -480,7 +480,7 @@ long clock_diff_millis(struct timespec t1, struct timespec t2);
 const char *get_display_caps_string (LrdViewer *viewer);
 void create_display_pipeline (LrdViewer *viewer, const char *caps_string);
 void add_display_sink (LrdViewer *viewer);
-void start_display_pipeline (LrdViewer *viewer, const char *caps_string);
+void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint framerate_n, gint framerate_d);
 
 // Applies the GigE Vision settings chosen on the command line to the stream (nothing to do for other cameras)
 void configure_stream (LrdViewer *viewer);

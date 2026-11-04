@@ -681,7 +681,7 @@ static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *vi
     create_display_pipeline (viewer, caps_string);
     add_display_sink (viewer);
     gst_element_link (viewer->transform, viewer->videosink);
-    start_display_pipeline (viewer, caps_string);
+    start_display_pipeline (viewer, caps_string, 0, 1);
 
     return TRUE;
 }
@@ -739,6 +739,85 @@ typedef struct {
 
 static const Mp4EncodingSettings mp4_encoding_settings = {"I420", "superfast", 18};
 
+// MP4 videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down (or
+// sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
+static const gint mp4_playback_fps = 30;
+
+// State of the current GStreamer (MP4/FLV) recording. Written by forward_buffer_to_gst (stream thread),
+// read once the stream is stopped.
+static FrameNumbering gst_record_numbering;
+static guint64 gst_n_recorded_frames;
+static guint32 gst_last_running_number;
+static guint64 gst_first_timestamp_ns, gst_last_timestamp_ns;
+static double gst_capture_frame_rate;   // actual frame rate of the camera when the recording started
+
+// Description of the recording settings, as "key=value" lines (same names as in the .gcv metainfo.meta file).
+// With 'final', also the number of frames recorded / lost and the frame rate measured from the camera timestamps.
+static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
+    gint x, y, width, height, binning_x, binning_y;
+    arv_camera_get_region (viewer->camera, &x, &y, &width, &height, NULL);
+    arv_camera_get_binning (viewer->camera, &binning_x, &binning_y, NULL);
+
+    GString *text = g_string_new (NULL);
+    g_string_append_printf (text, "captureCameraVendor=%s\n", arv_camera_get_vendor_name (viewer->camera, NULL));
+    g_string_append_printf (text, "captureCameraName=%s\n", arv_camera_get_model_name (viewer->camera, NULL));
+    g_string_append_printf (text, "captureCameraSerial=%s\n", arv_camera_get_device_serial_number (viewer->camera, NULL));
+    g_string_append_printf (text, "pixelFormat=%s\n", arv_camera_get_pixel_format_as_string (viewer->camera, NULL));
+    g_string_append_printf (text, "cameraRegionX=%d\ncameraRegionY=%d\ncameraRegionWidth=%d\ncameraRegionHeight=%d\n",
+                            x, y, width, height);
+    g_string_append_printf (text, "binningX=%d\nbinningY=%d\n", binning_x, binning_y);
+    g_string_append_printf (text, "captureFrequency=%f\n", gst_capture_frame_rate);
+    g_string_append_printf (text, "playbackFrequency=%d\n", mp4_playback_fps);
+    g_string_append_printf (text, "slowdownFactor=%f\n", gst_capture_frame_rate / mp4_playback_fps);
+    g_string_append_printf (text, "autoExposureTime=%u\n", arv_camera_get_exposure_time_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureExposureTime=%f\n", arv_camera_get_exposure_time (viewer->camera, NULL));
+    g_string_append_printf (text, "autoGain=%u\n", arv_camera_get_gain_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureGain=%f\n", arv_camera_get_gain (viewer->camera, NULL));
+    g_string_append_printf (text, "autoBlackLevel=%u\n", arv_camera_get_black_level_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureBlackLevel=%f\n", arv_camera_get_black_level (viewer->camera, NULL));
+    g_string_append_printf (text, "captureProg=Limrendir version %s\n", LIMRENDIR_VERSION);
+    if (final) {
+        g_string_append_printf (text, "recordedFrames=%" G_GUINT64_FORMAT "\n", gst_n_recorded_frames);
+        guint64 n_lost = gst_last_running_number > gst_n_recorded_frames ? gst_last_running_number - gst_n_recorded_frames : 0;
+        g_string_append_printf (text, "lostFrames=%" G_GUINT64_FORMAT "\n", n_lost);
+        if (gst_last_running_number > 1 && gst_last_timestamp_ns > gst_first_timestamp_ns)
+            g_string_append_printf (text, "measuredCaptureFrequency=%f\n", (gst_last_running_number - 1) /
+                                    ((double) (gst_last_timestamp_ns - gst_first_timestamp_ns) / 1e9));
+    }
+    return g_string_free (text, FALSE);
+}
+
+// Writes the recording settings in the metadata (tags) of the MP4 file. Called when the recording starts, and
+// again when it stops ('final', with the frame counts): MP4 metadata are written at the end of the file.
+static void set_mp4_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
+    double slowdown = gst_capture_frame_rate / mp4_playback_fps;
+    g_autofree char *description = g_strdup_printf ("Recorded at %.2f fps, played at %d fps (%.2fx %s)",
+                                                    gst_capture_frame_rate, mp4_playback_fps,
+                                                    slowdown >= 1 ? slowdown : 1 / slowdown,
+                                                    slowdown >= 1 ? "slower" : "faster");
+    // The comment is shown by most players: it starts with the description, then the "key=value" settings
+    g_autofree char *settings = recording_metadata_text (viewer, final);
+    g_autofree char *comment = g_strdup_printf ("%s\n%s", description, settings);
+    GstTagSetter *setter = GST_TAG_SETTER (muxer);
+    gst_tag_setter_add_tags (setter, GST_TAG_MERGE_REPLACE,
+                             GST_TAG_DESCRIPTION, description,
+                             GST_TAG_COMMENT, comment,
+                             NULL);
+    if (!final) {
+        const char *title = strrchr (viewer->dataset_name, '/');
+        GstDateTime *now = gst_date_time_new_now_local_time ();
+        g_autofree char *application = g_strdup_printf ("Limrendir %s", LIMRENDIR_VERSION);
+        gst_tag_setter_add_tags (setter, GST_TAG_MERGE_REPLACE,
+                                 GST_TAG_TITLE, title != NULL ? title + 1 : viewer->dataset_name,
+                                 GST_TAG_APPLICATION_NAME, application,
+                                 GST_TAG_DEVICE_MANUFACTURER, arv_camera_get_vendor_name (viewer->camera, NULL),
+                                 GST_TAG_DEVICE_MODEL, arv_camera_get_model_name (viewer->camera, NULL),
+                                 GST_TAG_DATE_TIME, now,
+                                 NULL);
+        gst_date_time_unref (now);
+    }
+}
+
 // the callback called each time an aravis buffer is available
 static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
 {
@@ -750,10 +829,25 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
     if (!is_buffer_successful(arv_buffer)) {
         arv_stream_push_buffer (stream, arv_buffer);
     } else {
+        guint32 running_number = frame_numbering_next (&gst_record_numbering, arv_buffer_get_frame_id (arv_buffer));
+        guint64 timestamp_ns = arv_buffer_get_timestamp (arv_buffer);
+        if (gst_n_recorded_frames == 0)
+            gst_first_timestamp_ns = timestamp_ns;
+        gst_last_timestamp_ns = timestamp_ns;
+        gst_last_running_number = running_number;
+        gst_n_recorded_frames++;
+
         g_clear_object( &viewer->last_buffer );
         viewer->last_buffer = g_object_ref( arv_buffer );
 
-        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (arv_buffer, stream, viewer));
+        GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
+        if (viewer->record_type == RECORDTYPE_MP4) {
+            // Fixed playback frame rate: frame n is shown at (n - 1) / playback fps. The running number follows the
+            // camera frame counter, so a frame lost during the capture leaves a gap instead of shifting the video.
+            GST_BUFFER_PTS (gst_buffer) = gst_util_uint64_scale (running_number - 1, GST_SECOND, mp4_playback_fps);
+            GST_BUFFER_DURATION (gst_buffer) = gst_util_uint64_scale (1, GST_SECOND, mp4_playback_fps);
+        }
+        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), gst_buffer);
     }
 }
 
@@ -880,6 +974,8 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             gst_util_set_object_arg (G_OBJECT (x264enc), "pass", "qual");
             g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
+            gst_capture_frame_rate = get_actual_frame_rate (viewer);
+            set_mp4_tags (viewer, mp4mux, FALSE);
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -965,13 +1061,21 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     gst_object_unref (GST_OBJECT (tee_record_src_pad));
 
-    start_display_pipeline (viewer, caps_string);
+    if (viewer->record_type == RECORDTYPE_MP4)
+        start_display_pipeline (viewer, caps_string, mp4_playback_fps, 1);
+    else
+        start_display_pipeline (viewer, caps_string, 0, 1);
 
     return TRUE;
 }
 
 static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
+
+    // Each recording numbers its frames from 1
+    frame_numbering_reset (&gst_record_numbering);
+    gst_n_recorded_frames = 0;
+    gst_last_running_number = 0;
 
     // Create the stream
     viewer->stream = create_camera_stream (viewer, stream_record_cb);
@@ -1278,6 +1382,15 @@ void stop_recording (LrdViewer *viewer) {
     // Destroying the stream stops its thread and waits for it. This guarantees that no frame
     // is still being written (record_buffer runs in that thread) when the files are closed below.
     g_clear_object (&viewer->stream);
+
+    // MP4: complete the metadata with the frame counts (the muxer writes them at the end of the file)
+    if (viewer->record_type == RECORDTYPE_MP4 && GST_IS_BIN (viewer->pipeline)) {
+        GstElement *muxer = gst_bin_get_by_interface (GST_BIN (viewer->pipeline), GST_TYPE_TAG_SETTER);
+        if (muxer != NULL) {
+            set_mp4_tags (viewer, muxer, TRUE);
+            gst_object_unref (muxer);
+        }
+    }
 
     // send end of stream signal. Important for certain formats (mp4 for example).
     if (GST_IS_APP_SRC (viewer->appsrc)) {
