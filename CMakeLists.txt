@@ -51,6 +51,11 @@ add_executable( limrendir
 
         ${LIMRENDIR_RESOURCES_C})
 
+# Compiler warnings (GTK callbacks have fixed signatures, so unused parameters are normal)
+if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(limrendir PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif ()
+
 target_include_directories(limrendir PUBLIC ${GTK_INCLUDE_DIRS} ${GST_INCLUDE_DIRS} ${ARAVIS_INCLUDE_DIRS})
 target_link_directories(limrendir PUBLIC ${GSTLIBS_LIBRARY_DIRS} ${ARAVIS_LIBRARY_DIRS})
 target_link_libraries(limrendir PUBLIC
