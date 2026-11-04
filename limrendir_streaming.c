@@ -265,7 +265,7 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
 
         // Push back the buffer (in the right queue)
         if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000
-            && stream_can_spare_buffer (stream)) {
+            && can_display_buffer (viewer, stream)) {
             clock_last_snapshot_streaming = clock_now_streaming;
             g_clear_object(&viewer->last_buffer);
             viewer->last_buffer = g_object_ref(arv_buffer);
@@ -282,6 +282,8 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
 ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback)
 {
     GError *error = NULL;
+    // The buffers of the new stream are counted by push_new_buffers
+    viewer->n_stream_buffers = 0;
     ArvStream *stream = arv_camera_create_stream (viewer->camera, callback, NULL, &error);
     if (!ARV_IS_STREAM (stream)) {
         const char *reason = error != NULL ? error->message : "unknown error";
@@ -345,11 +347,18 @@ void configure_stream (LrdViewer *viewer)
     }
 }
 
-// Tells whether the stream still owns a buffer, after one was popped (from aravis 0b48b0ea9).
+// Maximum number of the stream buffers that the display may hold at the same time
+#define LRD_MAX_DISPLAY_BUFFERS 3
+
+// Tells whether a buffer just popped from the stream may be sent to the display. Otherwise, the caller must give
+// it back to the stream.
 // A buffer sent to the display is only given back to the stream when GStreamer is done with it. If the display
-// is too slow, all the buffers end up in the GStreamer pipeline and the stream thread has none left to fill, so
-// frames are lost. A buffer must not be sent to the display when it is the last one.
-gboolean stream_can_spare_buffer (ArvStream *stream)
+// is too slow, the buffers pile up in the GStreamer pipeline and the stream thread runs out of buffers to fill, so
+// frames are lost (during a recording too). Two rules prevent it:
+// - the display never holds more than LRD_MAX_DISPLAY_BUFFERS buffers;
+// - the stream must still own a buffer (from aravis 0b48b0ea9). Since every stream gets at least 10 buffers, the
+//   first rule already ensures it: this one is only a safety net.
+gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream)
 {
     gint n_input_buffers, n_output_buffers;
     gint n_buffer_filling = 0;
@@ -357,9 +366,18 @@ gboolean stream_can_spare_buffer (ArvStream *stream)
 #if ARAVIS_CHECK_VERSION(0, 9, 0)
     arv_stream_get_n_owned_buffers (stream, &n_input_buffers, &n_output_buffers, &n_buffer_filling);
 #else
+    // Aravis 0.8 cannot count the buffer being filled: it is counted as held by the display (more cautious)
     arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
 #endif
-    return n_input_buffers + n_output_buffers + n_buffer_filling > 0;
+    gint n_owned = n_input_buffers + n_output_buffers + n_buffer_filling;
+    // The other buffers are held by the display, except the one the caller has just popped
+    gint n_held_by_display = (gint) viewer->n_stream_buffers - n_owned - 1;
+
+    if (n_owned > 0 && n_held_by_display < LRD_MAX_DISPLAY_BUFFERS)
+        return TRUE;
+
+    g_atomic_int_inc (&viewer->n_display_skips);
+    return FALSE;
 }
 
 // Gives n new buffers, each holding one full frame, to the stream
@@ -368,6 +386,7 @@ void push_new_buffers (LrdViewer *viewer, unsigned n)
     unsigned payload = arv_camera_get_payload (viewer->camera, NULL);
     for (unsigned i = 0; i < n; i++)
         arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    viewer->n_stream_buffers += n;
 }
 
 // DISPLAY PIPELINE (shared by the live video and the recordings)
@@ -459,6 +478,7 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
     viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
     viewer->last_n_images = 0;
     viewer->last_n_bytes = 0;
+    viewer->last_n_display_skips = g_atomic_int_get (&viewer->n_display_skips);
     viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
 }
 
@@ -642,6 +662,14 @@ gboolean update_status_bar_cb (void *data)
     viewer->last_status_bar_update_time_ms = time_ms;
     viewer->last_n_images = n_images;
     viewer->last_n_bytes = n_bytes;
+
+    // Frames not displayed to keep buffers for the stream (see can_display_buffer)
+    guint n_display_skips = (guint) g_atomic_int_get (&viewer->n_display_skips);
+    if (n_display_skips != viewer->last_n_display_skips) {
+        log_debug ("%u frame(s) not displayed in the last second: the display is too slow and holds too many buffers.",
+                   n_display_skips - viewer->last_n_display_skips);
+        viewer->last_n_display_skips = n_display_skips;
+    }
 
     return TRUE;
 }

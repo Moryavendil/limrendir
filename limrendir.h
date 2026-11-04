@@ -217,6 +217,11 @@ struct  _LrdViewer {
     gint64 last_status_bar_update_time_ms;
     guint64 last_n_images;
     guint64 last_n_bytes;
+    gint n_display_skips; // frames not displayed to keep buffers for the stream (atomic: stream thread)
+    guint last_n_display_skips;
+
+    // Number of buffers given to the current stream
+    unsigned n_stream_buffers;
 
     guint recording_snapshots_update_event;
 
@@ -480,7 +485,7 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
 void configure_stream (LrdViewer *viewer);
 
 // Gives n new full-frame buffers to the stream
-gboolean stream_can_spare_buffer (ArvStream *stream);
+gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream);
 void push_new_buffers (LrdViewer *viewer, unsigned n);
 
 // Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure
