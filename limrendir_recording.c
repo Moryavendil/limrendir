@@ -785,10 +785,9 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     write_meta(viewer);
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL) {
+        close_files();
         return FALSE;
     }
 
@@ -1153,12 +1152,9 @@ static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     unsigned payload; // The size of the buffers
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL)
         return FALSE;
-    }
 
     // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
     // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
@@ -1253,10 +1249,11 @@ static gboolean bourrin_recording(void *data)
     write_meta(viewer);
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL) {
+        // Closes the files and puts the interface back in its normal state
+        stop_recording (viewer);
+        gtk_widget_set_sensitive(viewer->help_button, TRUE);
         return FALSE;
     }
 

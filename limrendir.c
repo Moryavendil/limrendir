@@ -170,6 +170,8 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
             if (g_str_equal(viewer->gc_option_camera_name, camera_id)) {
                 gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW (viewer->camera_tree)),
                                                &iter);
+                if (!ARV_IS_CAMERA (viewer->camera))
+                    return FALSE; // start_camera already said why
                 log_info("Selected camera %s", viewer->gc_option_camera_name);
                 return TRUE;
             }
@@ -192,6 +194,8 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
             gtk_tree_selection_select_iter (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), &iter);
 
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
+            if (!ARV_IS_CAMERA (viewer->camera))
+                return FALSE; // start_camera already said why
             log_info("Auto-selected the only camera available: %s", camera_id);
             return TRUE;
         }

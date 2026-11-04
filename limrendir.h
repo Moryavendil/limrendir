@@ -474,6 +474,9 @@ long clock_millis(struct timespec t);
 /* time difference in milliseconds */
 long clock_diff_millis(struct timespec t1, struct timespec t2);
 
+// Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure
+ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback);
+
 gboolean start_video (LrdViewer *viewer);
 void stop_video (LrdViewer *viewer);
 

@@ -314,6 +314,22 @@ GstBusSyncReply bus_sync_handler (GstBus *bus, GstMessage *message, gpointer use
 }
 
 
+// Creates the acquisition stream of the camera. On failure, tells the user why and returns NULL
+// (the camera itself is left untouched).
+ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback)
+{
+    GError *error = NULL;
+    ArvStream *stream = arv_camera_create_stream (viewer->camera, callback, NULL, &error);
+    if (!ARV_IS_STREAM (stream)) {
+        const char *reason = error != NULL ? error->message : "unknown error";
+        log_error ("Could not create the camera stream: %s", reason);
+        arv_viewer_show_notification (viewer, "Could not start the camera stream", reason);
+        g_clear_error (&error);
+        g_clear_object (&stream);
+    }
+    return stream;
+}
+
 gboolean start_video (LrdViewer *viewer)
 {
     log_debug("Start the video stream.");
@@ -331,12 +347,9 @@ gboolean start_video (LrdViewer *viewer)
     stop_video (viewer);
 
     viewer->rotation = 0;
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_video_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_video_cb);
+    if (viewer->stream == NULL)
         return FALSE;
-    }
 
     if (ARV_IS_GV_STREAM (viewer->stream)) {
         if (viewer->auto_socket_buffer)

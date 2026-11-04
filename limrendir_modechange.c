@@ -108,6 +108,10 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 // VIDEO MODE
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer)
 {
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        log_warning ("No camera opened: cannot switch to video mode.");
+        return;
+    }
     camera_region_cb(NULL, viewer);
     select_mode (viewer, TRN_VIEWER_MODE_VIDEO);
 }
@@ -384,10 +388,17 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 
     stop_camera (viewer);
 
-    viewer->camera = arv_camera_new (camera_id, NULL);
+    GError *error = NULL;
+    viewer->camera = arv_camera_new (camera_id, &error);
 
-    if (!ARV_IS_CAMERA (viewer->camera))
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        const char *reason = error != NULL ? error->message : "unknown error";
+        log_error ("Could not open the camera %s: %s (is it used by another program?)", camera_id, reason);
+        arv_viewer_show_notification (viewer, "Could not open the camera (is it used by another program?)", reason);
+        g_clear_error (&error);
+        g_clear_object (&viewer->camera);
         return FALSE;
+    }
 
     arv_device_set_register_cache_policy (arv_camera_get_device (viewer->camera),
                                           viewer->register_cache_policy);
