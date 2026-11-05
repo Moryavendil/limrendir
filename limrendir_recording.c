@@ -1459,6 +1459,13 @@ gboolean is_record_button_active(LrdViewer *viewer) {
     return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(viewer->record_button));
 }
 
+void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer)
+{
+    gtk_widget_set_tooltip_text (GTK_WIDGET (toggle),
+                                 gtk_toggle_button_get_active (toggle) ?
+                                 "Stop recording [SPACE]" : "Start recording [SPACE]");
+}
+
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer)
 {
     if (gtk_toggle_button_get_active (toggle)) {

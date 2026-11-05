@@ -509,6 +509,7 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 gboolean is_buffer_successful(ArvBuffer *buffer);
 
 gboolean is_record_button_active(LrdViewer *viewer);
+void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer);
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 gboolean start_recording (LrdViewer *viewer);
 void stop_recording (LrdViewer *viewer);

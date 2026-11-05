@@ -172,7 +172,7 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
                 g_free(camera_id);
                 return FALSE; // start_camera already said why
             }
-            log_info("Auto-selected the only camera available: %s", camera_id);
+            log_debug("Auto-selected the only camera available: %s", camera_id);
             g_free(camera_id);
             return TRUE;
         }
@@ -457,6 +457,7 @@ activate (GApplication *application)
 
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
+    g_signal_connect (viewer->record_button, "toggled", G_CALLBACK (record_button_update_tooltip), viewer);
     g_signal_connect (viewer->max_frame_rate_button, "toggled", G_CALLBACK(apply_max_frame_rate_if_wanted), viewer);
 
 	viewer->camera_selected = g_signal_connect (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), "changed",
