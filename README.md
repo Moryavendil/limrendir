@@ -71,7 +71,7 @@ See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable
 
 ## About the code
 
-Limrendir is written in C and based on Aravis (0.8), gstreamer (1.0) and GTK+ (3.0).
+Limrendir is written in C and based on Aravis (0.8/0.10), gstreamer (1.0) and GTK+ (3.0).
 
 A consequent part of the code is directly burrowed or adapted from Aravis Viewer. My additions consist mainly of 
 
@@ -85,8 +85,15 @@ I am not a professional software developer so the code quality might not be perf
 
 Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
 
+? Add crosshair (line in middel H and V and circle with diameter min(H, W)
+? Better grid (finer)
+
+? Add a settings where settings can be remembered in `~.local/state/limrendir/settings`
+- in the settings, the mp4 encoding options
+- in the settings, the grid spacing (fine = 30 px / medium = 60 px / coarse = 120 px / medium (in px)
 
 ? Add zebra patterns
+
 
 
 ## Licence
