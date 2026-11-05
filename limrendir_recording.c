@@ -359,13 +359,13 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
 
     const gchar *flv_filter_name = "FLV video (H264 encoding) (*.flv)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, flv_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.flv");
-    gtk_file_filter_add_pattern(filter_all, "*.flv");
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
-    }
+//    filter = gtk_file_filter_new();
+//    gtk_file_filter_set_name(filter, flv_filter_name);
+//    gtk_file_filter_add_pattern(filter, "*.flv");
+//    gtk_file_filter_add_pattern(filter_all, "*.flv");
+//    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+//        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+//    }
 
     const gchar *avi_filter_name = "AVI video (*.avi)";
 //    filter = gtk_file_filter_new();
