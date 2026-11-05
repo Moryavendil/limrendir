@@ -2,6 +2,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <arv.h>
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
@@ -26,9 +27,13 @@
 // declare files
 // Number of buffers in the buffer queue (more is better)
 unsigned n_buffers = 250;
-// Memory allowed for buffers, in bytes
-// The max output of a GiGE link is 118 MB/s, so we put enough buffers for 3 seconds of recording, which should be enough.
-size_t mem_for_buffers = 3 * 118 * (1 << 20);
+// Memory allowed for buffers: enough to hold this many seconds of frames at the actual data rate
+// (frame size x actual frame rate), so that the disk can stall that long without losing frames.
+const double buffered_seconds = 3.;
+// ... but never less than this (3 s of a GigE link, 118 MB/s), in bytes
+const size_t min_mem_for_buffers = 3 * 118 * (1 << 20);
+// ... and never more than this fraction of the physical memory of the computer
+const double max_mem_for_buffers_fraction = 0.25;
 // Number of FPS to display while recording (less is better)
 gint display_fps_recording = 10;
 // Time since last update
@@ -76,7 +81,25 @@ void combine(char* destination, const char* path1, const char* path2)
     }
 }
 
-void open_files(LrdViewer *viewer) {
+void close_files();
+
+// Opens one of the files of a .gcv dataset. On failure, tells the user and returns NULL.
+static FILE *open_dataset_file(LrdViewer *viewer, const char *dirname, const char *filename) {
+    char path[strlen(dirname) + strlen(filename) + 2];
+    combine(path, dirname, filename);
+    log_trace("%s path: %s", filename, path);
+
+    FILE *file = fopen(path, "w");
+    if (file == NULL) {
+        int const saved_errno = errno;
+        log_error("Could not create the file '%s': %s", path, g_strerror(saved_errno));
+        arv_viewer_show_notification(viewer, "Could not create the recording file", g_strerror(saved_errno));
+    }
+    return file;
+}
+
+// Creates the .gcv folder and its files. Returns FALSE (with everything closed) if this is not possible.
+gboolean open_files(LrdViewer *viewer) {
 
     char *extension = ".gcv";
     size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
@@ -85,25 +108,27 @@ void open_files(LrdViewer *viewer) {
 
     log_trace("dirpath: %s", dirname);
 
-    mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO);
+    // An already existing folder is fine (e.g. chosen in the dialog), anything else is an error
+    if (mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO) != 0 && errno != EEXIST) {
+        int const saved_errno = errno;
+        log_error("Could not create the recording folder '%s': %s", dirname, g_strerror(saved_errno));
+        arv_viewer_show_notification(viewer, "Could not create the recording folder", g_strerror(saved_errno));
+        g_free(dirname);
+        return FALSE;
+    }
 
-    const char* rawvideo_filename = "rawvideo.raw";
-    char rawvideo_path[strlen(dirname) + strlen(rawvideo_filename) + 2];
-    combine(rawvideo_path, dirname, rawvideo_filename);
-    log_trace("rawvideo_path: %s", rawvideo_path);
-    imageFile = fopen(rawvideo_path, "w");
+    imageFile = open_dataset_file(viewer, dirname, "rawvideo.raw");
+    if (imageFile != NULL)
+        stampFile = open_dataset_file(viewer, dirname, "stamps.stamps");
+    if (stampFile != NULL)
+        metaFile = open_dataset_file(viewer, dirname, "metainfo.meta");
+    g_free(dirname);
 
-    const char* stamps_filename = "stamps.stamps";
-    char stamps_path[strlen(dirname) + strlen(stamps_filename) + 2];
-    combine(stamps_path, dirname, stamps_filename);
-    log_trace("stamps_path: %s", stamps_path);
-    stampFile = fopen(stamps_path, "w");
-
-    const char* meta_filename = "metainfo.meta";
-    char meta_path[strlen(dirname) + strlen(meta_filename) + 2];
-    combine(meta_path, dirname, meta_filename);
-    log_trace("meta_path: %s", meta_path);
-    metaFile = fopen(meta_path, "w");
+    if (imageFile == NULL || stampFile == NULL || metaFile == NULL) {
+        close_files();
+        return FALSE;
+    }
+    return TRUE;
 }
 
 void close_files() {
@@ -220,7 +245,7 @@ char *obtain_new_original_filename(LrdViewer *viewer) {
     GDateTime *date;
     char *date_string;
     date = g_date_time_new_now_local();
-    date_string = g_date_time_format(date, "%Y-%m-%d-%H:%M:%S");
+    date_string = g_date_time_format(date, "%Y-%m-%d_%H-%M-%S");
     filename = g_strdup_printf("%s-%s",
                                arv_camera_get_model_name(viewer->camera, NULL),
                                date_string);
@@ -261,16 +286,10 @@ char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
 RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *filename;
     if (viewer->dataset_name == NULL) {
-        log_debug("No name specified, we need to set one.", viewer->dataset_name);
+        log_debug("No name specified, we need to set one.");
         filename = obtain_new_original_filename(viewer);
     } else {
-        // Is this a valid copy method ?
-        // Will it generate a segfault ?
-        // Memory loss ?
-        // Hatred from grumpy c programmers ?
-        // Who knows ¯\_(ツ)_/¯
-        filename = malloc (strlen(viewer->dataset_name)+1);
-        memcpy(filename, viewer->dataset_name, strlen(viewer->dataset_name)+1);
+        filename = g_strdup(viewer->dataset_name);
 
         // This part is useless but la flemme de l'enlever
         char *extension = ".gcv";
@@ -280,6 +299,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
         if (does_file_exist(dirname) || does_dir_exist(dirname)) {
             log_debug("Name %s is taken, generating another one.", viewer->dataset_name);
+            g_free(filename);
             filename = obtain_new_original_filename(viewer);
         } else {
             log_debug("Name %s seems to be free (nothing named %s).", viewer->dataset_name, dirname);
@@ -339,13 +359,13 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
 
     const gchar *flv_filter_name = "FLV video (H264 encoding) (*.flv)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, flv_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.flv");
-    gtk_file_filter_add_pattern(filter_all, "*.flv");
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
-    }
+//    filter = gtk_file_filter_new();
+//    gtk_file_filter_set_name(filter, flv_filter_name);
+//    gtk_file_filter_add_pattern(filter, "*.flv");
+//    gtk_file_filter_add_pattern(filter_all, "*.flv");
+//    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+//        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+//    }
 
     const gchar *avi_filter_name = "AVI video (*.avi)";
 //    filter = gtk_file_filter_new();
@@ -361,12 +381,14 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 //    gtk_file_filter_add_pattern(filter_all, "*.mkv");
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
-    const gchar *mp4_filter_name = "MP4 video (*.mp4)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, mp4_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.mp4");
-//    gtk_file_filter_add_pattern(filter_all, "*.mp4");
-//    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
+    filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, mp4_filter_name);
+    gtk_file_filter_add_pattern(filter, "*.mp4");
+    gtk_file_filter_add_pattern(filter_all, "*.mp4");
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    }
 
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
 
@@ -381,6 +403,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
         log_debug("Dialog accepted.");
 
         filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER (dialog));
+        g_free(viewer->dataset_name);
         viewer->dataset_name = remove_ext(filename, '.', '/');
 
 
@@ -433,6 +456,7 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
             chosen_filetype = RECORDTYPE_NONE;
         }
         gtk_widget_destroy(dialog);
+        g_free(filename); // 'extension' pointed into it
         return chosen_filetype;
 
     } else if (result == GTK_RESPONSE_CANCEL) {
@@ -511,6 +535,41 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
 }
 
 
+// FRAME NUMBERING
+// The stamps file contains a running frame number, starting at 1 for the first recorded frame,
+// that keeps track of lost frames (gaps) and does not wrap around like the camera frame id may.
+typedef struct {
+    gboolean first_frame;   // TRUE until the first frame of the recording is numbered
+    guint64 last_frame_id;  // camera frame id of the previous frame
+    guint32 running_number; // running frame number of the previous frame
+} FrameNumbering;
+
+static void frame_numbering_reset (FrameNumbering *numbering) {
+    numbering->first_frame = TRUE;
+    numbering->last_frame_id = 0;
+    numbering->running_number = 0;
+}
+
+static guint32 frame_numbering_next (FrameNumbering *numbering, guint64 frame_id) {
+    // GigE Vision (v1) frame ids are 16 bits and wrap around, skipping 0
+    const guint64 frame_id_modulus = 1 << 16;
+
+    if (numbering->first_frame) {
+        numbering->first_frame = FALSE;
+        numbering->running_number = 1;
+    } else if (frame_id < numbering->last_frame_id) {
+        numbering->running_number += (frame_id + frame_id_modulus) - numbering->last_frame_id - 1; // ATTENTION AU -1 cf doc
+    } else {
+        numbering->running_number += frame_id - numbering->last_frame_id;
+    }
+    numbering->last_frame_id = frame_id;
+    return numbering->running_number;
+}
+
+// Numbering of the frames of the current user-controlled recording (record_buffer)
+static FrameNumbering record_numbering;
+
+
 // RECORDING LIKE GEVCAPTURE
 
 // The most important function here... This is the callback for the new buffer signal
@@ -519,13 +578,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
     ArvBuffer *buffer;
     gint n_input_buffers, n_output_buffers;
 
-    guint32 frame_id;
-    // remember previous frame id to detect overflow
-    static guint32 old_frame_id = 0;
-    // frame_id that does not wrap around (until guint32 itself overflows)
-    static guint32 unwrapped_frame_id = 0;
-    // wrapping modulus
-    const guint32 frame_id_modulus = 1 << 16;
+    guint32 running_number;
 
     uint8_t *image_data;
     size_t size;
@@ -544,8 +597,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         fprintf(stderr, "No buffer to output (wtf?) - There should be a '0': \n");
     } else if (n_output_buffers > 1) {
         fprintf(stderr, "Several buffers waiting to be saved. Computer time won't be reliable.\n");
-        if (n_output_buffers > n_buffers/2) {
-            fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%d)\n", n_output_buffers, n_buffers);
+        if ((unsigned) n_output_buffers > n_buffers/2) {
+            fprintf(stderr, "More than half of the buffers are waiting to be read ! (%d/%u)\n", n_output_buffers, n_buffers);
         }
     }
 
@@ -559,30 +612,22 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         // Check that we did indeed grab something
         if (buffer == NULL) {
             // For some reason, we were signaled a buffer but we could not retrieve one. Weird!
+            // The queue is empty, so there is nothing left to do.
             fprintf(stderr, "O\n");
-            return;
+            break;
         }
 
-        // Check if the buffer was successful
+        // Check if the buffer was successful. If not, give it back and handle the next waiting ones.
         if (!is_buffer_successful(buffer)) {
             arv_stream_push_buffer(stream, buffer);
-            return;
+            continue;
         }
 
-        // unwrap running frame number
-        frame_id = arv_buffer_get_frame_id(buffer);
-        if (unwrapped_frame_id == 0) {
-            old_frame_id = frame_id - 1;
-        }
-        if (frame_id < old_frame_id)
-            unwrapped_frame_id += (frame_id + frame_id_modulus) - old_frame_id - 1; // ATTENTION AU -1 cf doc
-        else
-            unwrapped_frame_id += frame_id - old_frame_id;
-        old_frame_id = frame_id;
+        running_number = frame_numbering_next(&record_numbering, arv_buffer_get_frame_id(buffer));
 
         // write stamps data
-        fprintf(stampFile, "%d\t%ld\t%ld\n",
-                unwrapped_frame_id,                 // running frame number, guint32
+        fprintf(stampFile, "%u\t%" G_GUINT64_FORMAT "\t%ld\n",
+                running_number,                     // running frame number, guint32
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
                 clock_millis(clock_now_recording));        // computer time (ms)
 
@@ -591,7 +636,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         if (viewer->show_roi) {
             int width, height;
             arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == viewer->roi_w*viewer->roi_h) {
+            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
                 // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
             } else if (width == viewer->roi_w) {
@@ -614,7 +659,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
             clock_last_snapshot_recording = clock_now_recording;
             show_this_frame = TRUE;
         }
-        if (show_this_frame) {
+        // (if the display holds too many buffers, the frame is not shown and the next one will be)
+        if (show_this_frame && can_display_buffer (viewer, stream)) {
             g_clear_object(&viewer->last_buffer);
             viewer->last_buffer = g_object_ref(buffer);
             gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(buffer, stream, viewer));
@@ -628,95 +674,15 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
 // sets up the display part (we want to see the video we're recording
 static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *viewer) {
     log_debug("Preparing to video display (gstreamer videostream).");
-    GstElement *videoconvert;
-    GstCaps *caps;
-    gint width, height; // image geometry
-    ArvPixelFormat pixel_format; // The pixel format used
-    const char *caps_string;
 
-    log_trace("    Retrieving pixel format.");
-    pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
+    const char *caps_string = get_display_caps_string (viewer);
+    if (caps_string == NULL)
         return FALSE;
-    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
-        return FALSE;
-    }
 
-    log_trace("    Creating gstreamer pipeline.");
-    viewer->pipeline = gst_pipeline_new ("pipeline");
-    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
-    videoconvert = gst_element_factory_make ("videoconvert", NULL);
-    viewer->transform = gst_element_factory_make ("videoflip", NULL);
-
-    log_trace("    Adding elements to the gstreamer pipeline.");
-    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
-
-    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
-        log_trace("    The pixel format has prefix 'video/x-bayer', adding a bayer2rgb element to the pipeline.");
-        GstElement *bayer2rgb;
-
-        bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
-        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
-    } else {
-        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
-    }
-
-    if (has_gtksink || has_gtkglsink) {
-        log_trace("    A video sink of type 'gtksink' is used.");
-        GtkWidget *video_widget;
-        viewer->videosink = gst_element_factory_make ("gtksink", NULL);
-        gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->videosink, NULL);
-        gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        log_trace("    A video sink of type 'autovideosink'is used.");
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
-        gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-    }
-
-    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
-
-    log_trace("    Setting source caps.");
-    caps = gst_caps_from_string (caps_string);
-    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-    gst_caps_set_simple (caps,
-                         "width", G_TYPE_INT, width,
-                         "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
-                         NULL);
-    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
-    gst_caps_unref (caps);
-
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
-
-    log_trace("    Bus management.");
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus;
-
-        bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
-
-    log_trace("    Pipeline in playing state.");
-    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
-
-    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
-    viewer->last_n_images = 0;
-    viewer->last_n_bytes = 0;
-    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+    create_display_pipeline (viewer, caps_string);
+    add_display_sink (viewer);
+    gst_element_link (viewer->transform, viewer->videosink);
+    start_display_pipeline (viewer, caps_string, 0, 1);
 
     return TRUE;
 }
@@ -724,79 +690,30 @@ static gboolean setup_video_display_for_gevcapture_style_recording(LrdViewer *vi
 // sets up the arv stream we are gonna record from
 static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
 
+    // Each recording numbers its frames from 1
+    frame_numbering_reset(&record_numbering);
+
     // Files writing
-    open_files(viewer);
+    if (!open_files(viewer))
+        return FALSE;
 
     write_meta(viewer);
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL) {
+        close_files();
         return FALSE;
     }
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
+    configure_stream (viewer);
 
 
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (record_buffer), viewer);
 
@@ -812,6 +729,96 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
 
 // RECORDING WITH PURE GSTREAMER
 
+// MP4 encoding settings. The default is the most widely readable video format: H.264, 4:2:0, 8 bits, in MP4.
+// The fast 'superfast' preset is needed to keep up with high frame rates (x264's default preset cannot follow
+// 156 fps at 1920x1200), and a constant quality (CRF) of 18 gives a visually lossless video.
+typedef struct {
+    const char *raw_format;    // pixel format given to the encoder (I420 = 4:2:0, readable by all players)
+    const char *speed_preset;  // x264 speed preset
+    guint quality;             // x264 constant quality (CRF): 0 = lossless, 18 = visually lossless, 23 = x264 default
+} Mp4EncodingSettings;
+
+static const Mp4EncodingSettings mp4_encoding_settings = {"I420", "superfast", 18};
+
+// MP4 videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down (or
+// sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
+static const gint mp4_playback_fps = 30;
+
+// State of the current GStreamer (MP4/FLV) recording. Written by forward_buffer_to_gst (stream thread),
+// read once the stream is stopped.
+static FrameNumbering gst_record_numbering;
+static guint64 gst_n_recorded_frames;
+static guint32 gst_last_running_number;
+static guint64 gst_first_timestamp_ns, gst_last_timestamp_ns;
+static double gst_capture_frame_rate;   // actual frame rate of the camera when the recording started
+
+// Description of the recording settings, as "key=value" lines (same names as in the .gcv metainfo.meta file).
+// With 'final', also the number of frames recorded / lost and the frame rate measured from the camera timestamps.
+static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
+    gint x, y, width, height, binning_x, binning_y;
+    arv_camera_get_region (viewer->camera, &x, &y, &width, &height, NULL);
+    arv_camera_get_binning (viewer->camera, &binning_x, &binning_y, NULL);
+
+    GString *text = g_string_new (NULL);
+    g_string_append_printf (text, "captureCameraVendor=%s\n", arv_camera_get_vendor_name (viewer->camera, NULL));
+    g_string_append_printf (text, "captureCameraName=%s\n", arv_camera_get_model_name (viewer->camera, NULL));
+    g_string_append_printf (text, "captureCameraSerial=%s\n", arv_camera_get_device_serial_number (viewer->camera, NULL));
+    g_string_append_printf (text, "pixelFormat=%s\n", arv_camera_get_pixel_format_as_string (viewer->camera, NULL));
+    g_string_append_printf (text, "cameraRegionX=%d\ncameraRegionY=%d\ncameraRegionWidth=%d\ncameraRegionHeight=%d\n",
+                            x, y, width, height);
+    g_string_append_printf (text, "binningX=%d\nbinningY=%d\n", binning_x, binning_y);
+    g_string_append_printf (text, "captureFrequency=%f\n", gst_capture_frame_rate);
+    g_string_append_printf (text, "playbackFrequency=%d\n", mp4_playback_fps);
+    g_string_append_printf (text, "slowdownFactor=%f\n", gst_capture_frame_rate / mp4_playback_fps);
+    g_string_append_printf (text, "autoExposureTime=%u\n", arv_camera_get_exposure_time_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureExposureTime=%f\n", arv_camera_get_exposure_time (viewer->camera, NULL));
+    g_string_append_printf (text, "autoGain=%u\n", arv_camera_get_gain_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureGain=%f\n", arv_camera_get_gain (viewer->camera, NULL));
+    g_string_append_printf (text, "autoBlackLevel=%u\n", arv_camera_get_black_level_auto (viewer->camera, NULL));
+    g_string_append_printf (text, "captureBlackLevel=%f\n", arv_camera_get_black_level (viewer->camera, NULL));
+    g_string_append_printf (text, "captureProg=Limrendir version %s\n", LIMRENDIR_VERSION);
+    if (final) {
+        g_string_append_printf (text, "recordedFrames=%" G_GUINT64_FORMAT "\n", gst_n_recorded_frames);
+        guint64 n_lost = gst_last_running_number > gst_n_recorded_frames ? gst_last_running_number - gst_n_recorded_frames : 0;
+        g_string_append_printf (text, "lostFrames=%" G_GUINT64_FORMAT "\n", n_lost);
+        if (gst_last_running_number > 1 && gst_last_timestamp_ns > gst_first_timestamp_ns)
+            g_string_append_printf (text, "measuredCaptureFrequency=%f\n", (gst_last_running_number - 1) /
+                                    ((double) (gst_last_timestamp_ns - gst_first_timestamp_ns) / 1e9));
+    }
+    return g_string_free (text, FALSE);
+}
+
+// Writes the recording settings in the metadata (tags) of the MP4 file. Called when the recording starts, and
+// again when it stops ('final', with the frame counts): MP4 metadata are written at the end of the file.
+static void set_mp4_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
+    double slowdown = gst_capture_frame_rate / mp4_playback_fps;
+    g_autofree char *description = g_strdup_printf ("Recorded at %.2f fps, played at %d fps (%.2fx %s)",
+                                                    gst_capture_frame_rate, mp4_playback_fps,
+                                                    slowdown >= 1 ? slowdown : 1 / slowdown,
+                                                    slowdown >= 1 ? "slower" : "faster");
+    // The comment is shown by most players: it starts with the description, then the "key=value" settings
+    g_autofree char *settings = recording_metadata_text (viewer, final);
+    g_autofree char *comment = g_strdup_printf ("%s\n%s", description, settings);
+    GstTagSetter *setter = GST_TAG_SETTER (muxer);
+    gst_tag_setter_add_tags (setter, GST_TAG_MERGE_REPLACE,
+                             GST_TAG_DESCRIPTION, description,
+                             GST_TAG_COMMENT, comment,
+                             NULL);
+    if (!final) {
+        const char *title = strrchr (viewer->dataset_name, '/');
+        GstDateTime *now = gst_date_time_new_now_local_time ();
+        g_autofree char *application = g_strdup_printf ("Limrendir %s", LIMRENDIR_VERSION);
+        gst_tag_setter_add_tags (setter, GST_TAG_MERGE_REPLACE,
+                                 GST_TAG_TITLE, title != NULL ? title + 1 : viewer->dataset_name,
+                                 GST_TAG_APPLICATION_NAME, application,
+                                 GST_TAG_DEVICE_MANUFACTURER, arv_camera_get_vendor_name (viewer->camera, NULL),
+                                 GST_TAG_DEVICE_MODEL, arv_camera_get_model_name (viewer->camera, NULL),
+                                 GST_TAG_DATE_TIME, now,
+                                 NULL);
+        gst_date_time_unref (now);
+    }
+}
+
 // the callback called each time an aravis buffer is available
 static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
 {
@@ -823,62 +830,53 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
     if (!is_buffer_successful(arv_buffer)) {
         arv_stream_push_buffer (stream, arv_buffer);
     } else {
+        guint32 running_number = frame_numbering_next (&gst_record_numbering, arv_buffer_get_frame_id (arv_buffer));
+        guint64 timestamp_ns = arv_buffer_get_timestamp (arv_buffer);
+        if (gst_n_recorded_frames == 0)
+            gst_first_timestamp_ns = timestamp_ns;
+        gst_last_timestamp_ns = timestamp_ns;
+        gst_last_running_number = running_number;
+        gst_n_recorded_frames++;
+
         g_clear_object( &viewer->last_buffer );
         viewer->last_buffer = g_object_ref( arv_buffer );
 
-        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer (arv_buffer, stream, viewer));
+        GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
+        if (viewer->record_type == RECORDTYPE_MP4) {
+            // Fixed playback frame rate: frame n is shown at (n - 1) / playback fps. The running number follows the
+            // camera frame counter, so a frame lost during the capture leaves a gap instead of shifting the video.
+            GST_BUFFER_PTS (gst_buffer) = gst_util_uint64_scale (running_number - 1, GST_SECOND, mp4_playback_fps);
+            GST_BUFFER_DURATION (gst_buffer) = gst_util_uint64_scale (1, GST_SECOND, mp4_playback_fps);
+        }
+        gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), gst_buffer);
     }
+}
+
+// Links a pad to the "sink" pad of an element
+static GstPadLinkReturn link_pad_to_element (GstPad *src_pad, GstElement *element) {
+    GstPad *sink_pad = gst_element_get_static_pad (element, "sink");
+    GstPadLinkReturn result = gst_pad_link (src_pad, sink_pad);
+    gst_object_unref (sink_pad);
+    return result;
 }
 
 // jhfdejhgfuyswfiuse
 static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
-    char *filename = have_video_filename(viewer, viewer->record_type);
+    g_autofree char *filename = have_video_filename(viewer, viewer->record_type);
     if (filename == NULL) {
         log_info("Could not get filename");
         return FALSE;
     }
 
     log_debug("Preparing to video display (gstreamer-style) recording.");
-    GstElement *videoconvert;
-    GstCaps *caps;
-    gint width, height; // image geometry
-    ArvPixelFormat pixel_format; // The pixel format used
-    const char *caps_string; // the pixel format in string format
     gboolean link_success; // boolean to know if a link creation went ok
 
-    log_trace("    Retrieving pixel format.");
-    pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
+    const char *caps_string = get_display_caps_string (viewer);
+    if (caps_string == NULL)
         return FALSE;
-    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
-        return FALSE;
-    }
 
-    log_trace("    Creating gstreamer pipeline.");
-    viewer->pipeline = gst_pipeline_new ("pipeline");
-    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
-    videoconvert = gst_element_factory_make ("videoconvert", NULL);
-    viewer->transform = gst_element_factory_make ("videoflip", NULL);
-
-    log_trace("    Adding elements to the gstreamer pipeline.");
-    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
-
-    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
-        log_trace("    The pixel format has prefix 'video/x-bayer', adding a bayer2rgb element to the pipeline.");
-        GstElement *bayer2rgb;
-
-        bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
-        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
-    } else {
-        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
-    }
+    create_display_pipeline (viewer, caps_string);
 
     // tee element
     GstElement *tee = gst_element_factory_make ("tee", NULL);
@@ -887,23 +885,9 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
 
     // DISPLAY PIPELINE
-    GstPad *tee_display_src_pad = gst_element_get_request_pad (tee, "src_%u");
+    GstPad *tee_display_src_pad = gst_element_request_pad_simple (tee, "src_%u");
 
-    if (has_gtksink || has_gtkglsink) {
-        log_trace("    A video sink of type 'gtksink' is used.");
-        viewer->videosink = gst_element_factory_make ("gtksink", NULL);
-        // integrate the video in the window
-        GtkWidget *video_widget;
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        log_trace("    A video sink of type 'autovideosink'is used.");
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-    }
-    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
+    add_display_sink (viewer);
 
     // Fuck this line.
     // For some reason if we don't add it everything freezes .
@@ -914,9 +898,14 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
     // But fuck it.
     g_object_set(G_OBJECT (viewer->videosink), "async", FALSE, NULL);
 
-    gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
-    link_success = gst_pad_link (tee_display_src_pad, gst_element_get_static_pad (viewer->videosink, "sink"));
-    if (GST_PAD_LINK_FAILED (link_success)) {
+    // The display must never slow down the recording: it gets its own thread through a queue that keeps only the
+    // latest frame and drops the others when the display cannot follow the camera frame rate.
+    GstElement *display_queue = gst_element_factory_make ("queue", NULL);
+    gst_util_set_object_arg (G_OBJECT (display_queue), "leaky", "downstream");
+    g_object_set (G_OBJECT (display_queue), "max-size-buffers", 1, "max-size-bytes", 0, "max-size-time", (guint64) 0, NULL);
+    gst_bin_add (GST_BIN (viewer->pipeline), display_queue);
+    link_success = link_pad_to_element (tee_display_src_pad, display_queue);
+    if (GST_PAD_LINK_FAILED (link_success) || !gst_element_link (display_queue, viewer->videosink)) {
         log_debug("Link from the tee to the display video sink failed.");
         return FALSE;
     }
@@ -926,14 +915,12 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     // RECORD PIPELINE
     // Todo: try also : multifilesink element to save every buffer in its own file ?
-    GstPad *tee_record_src_pad = gst_element_get_request_pad (tee, "src_%u");
+    GstPad *tee_record_src_pad = gst_element_request_pad_simple (tee, "src_%u");
     GstElement *filesink;
     GstElement *videoconvert_rec = NULL;
     GstElement *queue = NULL;
     // codecs
     GstElement *x264enc = NULL;
-    GstElement *omxh264enc = NULL;
-    GstElement *h264parse = NULL;
     GstElement *xvidenc = NULL;
     GstElement *avenc_ffv1 = NULL;
     // filetypes
@@ -953,7 +940,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             x264enc = gst_element_factory_make ("x264enc", NULL);
             flvmux = gst_element_factory_make ("flvmux", NULL);
-            GstPad *flvmux_sink_pad = gst_element_get_request_pad (flvmux, "video");
+            GstPad *flvmux_sink_pad = gst_element_request_pad_simple (flvmux, "video");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -961,7 +948,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, x264enc, flvmux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -970,35 +957,46 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Getting rid of the sink pad
             gst_object_unref (GST_OBJECT (flvmux_sink_pad));
             break;
-        case RECORDTYPE_MP4:
-            log_warning("mp4 encoding is still experimental. This might not work");
+        case RECORDTYPE_MP4: {
             /*
-             * MP4 RECORDING - NOT WORKING RIGHT NOW
+             * MP4 RECORDING
              *
              * Record pipeline:
-             *  tee -> videoconvert -> queue-> x264enc -> mp4mux -> filesink
+             *  tee -> videoconvert -> capsfilter (I420) -> queue -> x264enc -> mp4mux -> filesink
              */
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
+            GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
+            GstCaps *raw_caps = gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, mp4_encoding_settings.raw_format, NULL);
+            g_object_set (G_OBJECT (capsfilter), "caps", raw_caps, NULL);
+            gst_caps_unref (raw_caps);
             queue = gst_element_factory_make ("queue", NULL);
             x264enc = gst_element_factory_make ("x264enc", NULL);
+            gst_util_set_object_arg (G_OBJECT (x264enc), "speed-preset", mp4_encoding_settings.speed_preset);
+            gst_util_set_object_arg (G_OBJECT (x264enc), "pass", "qual");
+            g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
-            GstPad *mp4mux_sink_pad = gst_element_get_request_pad (flvmux, "video");
+            gst_capture_frame_rate = get_actual_frame_rate (viewer);
+            set_mp4_tags (viewer, mp4mux, FALSE);
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
+            log_debug("MP4 encoding: H.264 %s, preset %s, constant quality %u", mp4_encoding_settings.raw_format,
+                      mp4_encoding_settings.speed_preset, mp4_encoding_settings.quality);
 
             // Adding to the bin
-            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, queue, x264enc, mp4mux, filesink, NULL);
+            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, queue, x264enc, mp4mux, filesink, NULL);
-            // Getting rid of the sink pad
-            gst_object_unref (GST_OBJECT (mp4mux_sink_pad));
+            if (!gst_element_link_many (videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL)) {
+                log_error("Could not build the MP4 recording pipeline.");
+                return FALSE;
+            }
             break;
+        }
         case RECORDTYPE_MKV:
             log_warning("mkv encoding is still experimental. This might not work");
             /*
@@ -1010,7 +1008,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             avenc_ffv1 = gst_element_factory_make ("avenc_ffv1", NULL);
             matroskamux = gst_element_factory_make ("matroskamux", NULL);
-            GstPad *matroskamux_sink_pad = gst_element_get_request_pad (matroskamux, "video_%u");
+            GstPad *matroskamux_sink_pad = gst_element_request_pad_simple (matroskamux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -1018,12 +1016,12 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
+            gst_element_link_many (videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
             // Getting rid of the sink pad
             gst_object_unref (GST_OBJECT (matroskamux_sink_pad));
             break;
@@ -1039,7 +1037,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
             xvidenc = gst_element_factory_make ("xvidenc", NULL);
             avimux = gst_element_factory_make ("avimux", NULL);
-            GstPad *avimux_sink_pad = gst_element_get_request_pad (avimux, "video_%u");
+            GstPad *avimux_sink_pad = gst_element_request_pad_simple (avimux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -1047,7 +1045,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, xvidenc, avimux, filesink, NULL);
             // Linking the elements
-            link_success = gst_pad_link (tee_record_src_pad, gst_element_get_static_pad (videoconvert_rec, "sink"));
+            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
             if (GST_PAD_LINK_FAILED (link_success)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
@@ -1064,107 +1062,31 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     gst_object_unref (GST_OBJECT (tee_record_src_pad));
 
-
-    log_trace("    Setting source caps.");
-    caps = gst_caps_from_string (caps_string);
-    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-    gst_caps_set_simple (caps,
-                         "width", G_TYPE_INT, width,
-                         "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
-                         NULL);
-    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
-    gst_caps_unref (caps);
-
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
-
-    log_trace("    Bus management.");
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus;
-
-        bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
-
-    log_trace("    Pipeline in playing state.");
-    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
-
-    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
-    viewer->last_n_images = 0;
-    viewer->last_n_bytes = 0;
-    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+    if (viewer->record_type == RECORDTYPE_MP4)
+        start_display_pipeline (viewer, caps_string, mp4_playback_fps, 1);
+    else
+        start_display_pipeline (viewer, caps_string, 0, 1);
 
     return TRUE;
 }
 
 static gboolean setup_stream_for_gstreamer_recording(LrdViewer *viewer) {
     log_debug("Preparing to acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
+
+    // Each recording numbers its frames from 1
+    frame_numbering_reset (&gst_record_numbering);
+    gst_n_recorded_frames = 0;
+    gst_last_running_number = 0;
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL)
         return FALSE;
-    }
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
+    configure_stream (viewer);
 
 
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (forward_buffer_to_gst), viewer);
 
@@ -1187,78 +1109,34 @@ static gboolean bourrin_recording(void *data)
     LrdViewer *viewer = data;
 
     log_debug("Preparing the acquisition stream (aravis GigE Vision stream).");
-    unsigned payload; // The size of the buffers
 
     // The time for the video snapshot update
     clock_gettime(CLOCK_MONOTONIC, &clock_last_snapshot_recording);
 
     // Files writing
-    open_files(viewer);
+    if (!open_files(viewer)) {
+        // Puts the interface back in its normal state
+        stop_recording (viewer);
+        gtk_widget_set_sensitive(viewer->help_button, TRUE);
+        gtk_widget_set_sensitive(viewer->record_button, TRUE);
+        return FALSE;
+    }
 
     write_meta(viewer);
 
     // Create the stream
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_record_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    viewer->stream = create_camera_stream (viewer, stream_record_cb);
+    if (viewer->stream == NULL) {
+        // Closes the files and puts the interface back in its normal state
+        stop_recording (viewer);
+        gtk_widget_set_sensitive(viewer->help_button, TRUE);
+        gtk_widget_set_sensitive(viewer->record_button, TRUE);
         return FALSE;
     }
 
-    // Set some stream properties (buffer size, packet resent, timeouts, frame retention time)
-    // only possible for GV (GigE Vision) streams. Notably, doesn't work for Aravis Fake Camera.
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
+    configure_stream (viewer);
 
-        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
-        if (viewer->auto_socket_buffer) {
-            g_object_set(viewer->stream,
-                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                         "socket-buffer-size", 0,
-                         NULL);
-        } else {
-            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
-        }
-
-        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
-        if (!viewer->packet_resend) {
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        }
-
-        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
-        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
-        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
-
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", initial_packet_timeout,
-                      "packet-timeout", packet_timeout,
-                      "frame-retention", frame_retention,
-                      NULL);
-
-
-        const char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                             ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
-                                                                     ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
-        const char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
-                                                                      ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
-        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
-                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
-        log_debug("Packet timeout: %u us %s", packet_timeout,
-                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
-        log_debug("Frame retention: %u us %s", frame_retention,
-                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
-    } else {
-        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
-        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
-    }
-
-    // Add buffers
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n_buffers; i++) {
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
-    }
+    push_new_buffers (viewer, n_buffers);
 
     arv_stream_set_emit_signals (viewer->stream, FALSE);
 
@@ -1270,95 +1148,86 @@ static gboolean bourrin_recording(void *data)
 
     ArvBuffer *buffer;
 
-    guint32 frame_id;
-    // remember previous frame id to detect overflow
-    guint32 old_frame_id = 0;
-    // frame_id that does not wrap around (until guint32 itself overflows)
-    guint32 unwrapped_frame_id = 0;
-    // wrapping modulus
-    guint32 frame_id_modulus = 1 << 16;
+    FrameNumbering burst_numbering;
+    frame_numbering_reset(&burst_numbering);
+    guint32 running_number;
 
     uint8_t *image_data;
     size_t size;
 
-    gint n_input_buffers, n_output_buffers;
+    // Maximum time to wait for a frame before giving up: 10 s, or 10 frame periods if that is longer
+    // (very low frame rates), so that a camera that stops sending cannot hang the application.
+    double frame_rate = get_actual_frame_rate(viewer);
+    guint64 pop_timeout_us = 10 * G_USEC_PER_SEC;
+    if (frame_rate > 0 && 10. / frame_rate * G_USEC_PER_SEC > pop_timeout_us)
+        pop_timeout_us = (guint64) (10. / frame_rate * G_USEC_PER_SEC);
 
-    gboolean record_this_buffer;
+    // Only successful frames count towards the number of frames to record
+    int n_recorded_frames = 0;
+    int n_failed_frames = 0;
 
-    for (int i_frame = 0 ; i_frame < number_of_frames_to_record ; i_frame++) {
+    while (n_recorded_frames < number_of_frames_to_record) {
 
-        arv_stream_get_n_buffers (viewer->stream, &n_input_buffers, &n_output_buffers);
-//        if (n_output_buffers > 4*n_buffers/5) {
-//            fprintf(stderr, "Buffer queue filled at %.2f %% (%d/%d)\n", 100*((float) n_output_buffers)/ ((float) n_buffers), n_output_buffers, n_buffers);
-//        }
-
-        record_this_buffer = TRUE;
-
-        buffer = arv_stream_pop_buffer(viewer->stream);
+        buffer = arv_stream_timeout_pop_buffer(viewer->stream, pop_timeout_us);
 
         // Get the time of the grab
         clock_gettime(CLOCK_MONOTONIC, &clock_now_recording);
 
         // Check that we did indeed grab something
         if (buffer == NULL) {
-            fprintf(stderr, "O\n");
-            record_this_buffer = FALSE;
+            log_warning("No frame received for %.1f s: burst aborted after %d frames out of %d.",
+                        (double) pop_timeout_us / G_USEC_PER_SEC, n_recorded_frames, number_of_frames_to_record);
+            break;
         }
 
-        // Check if the buffer was successful
+        // Check if the buffer was successful. If not, give it back: it does not count.
         if (!is_buffer_successful(buffer)) {
-            record_this_buffer = FALSE;
+            n_failed_frames++;
+            arv_stream_push_buffer(viewer->stream, buffer);
+            continue;
         }
 
-        if (record_this_buffer) {
+        running_number = frame_numbering_next(&burst_numbering, arv_buffer_get_frame_id(buffer));
 
-            // unwrap running frame number
-            frame_id = arv_buffer_get_frame_id(buffer);
-            if (unwrapped_frame_id == 0) {
-                old_frame_id = frame_id - 1;
-            }
-            if (frame_id < old_frame_id)
-                unwrapped_frame_id += (frame_id + frame_id_modulus) - old_frame_id - 1; // ATTENTION AU -1 cf doc
-            else
-                unwrapped_frame_id += frame_id - old_frame_id;
-            old_frame_id = frame_id;
+        // write stamps data
+        fprintf(stampFile, "%u\t%" G_GUINT64_FORMAT "\t%ld\n",
+                running_number,                              // running frame number, guint32
+                arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
+                clock_millis(clock_now_recording));       // computer time (ms)
 
-            // write stamps data
-            fprintf(stampFile, "%d\t%ld\t%ld\n",
-                    unwrapped_frame_id,                          // running frame number, guint32
-                    arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
-                    clock_millis(clock_now_recording));       // computer time (ms)
-
-            // write image data
-            image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-            if (viewer->show_roi) {
-                int width, height;
-                arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-                if (size == viewer->roi_w * viewer->roi_h) {
-                    // The roi is useless
-                    fwrite(image_data, 1, size, imageFile);
-                } else if (width == viewer->roi_w) {
-                    // The roi is used to constrain only in y
-                    size_t offset = viewer->roi_y * width;
-                    fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
-                } else {
-                    // general case
-                    for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                        size_t offset = i_line * width + viewer->roi_x;
-                        fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
-                    }
-                }
-            } else {
+        // write image data
+        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
+        if (viewer->show_roi) {
+            int width, height;
+            arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
+            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
+                // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
+            } else if (width == viewer->roi_w) {
+                // The roi is used to constrain only in y
+                size_t offset = viewer->roi_y * width;
+                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
+            } else {
+                // general case
+                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
+                    size_t offset = i_line * width + viewer->roi_x;
+                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
+                }
             }
+        } else {
+            fwrite(image_data, 1, size, imageFile);
         }
+        n_recorded_frames++;
 
         // Push back the buffer
         arv_stream_push_buffer(viewer->stream, buffer);
     }
 
+    log_info("Burst: %d frames recorded (%d failed frames skipped).", n_recorded_frames, n_failed_frames);
+
     stop_recording (viewer);
     gtk_widget_set_sensitive(viewer->help_button, TRUE);
+    gtk_widget_set_sensitive(viewer->record_button, TRUE);
 
     return FALSE;
 }
@@ -1368,7 +1237,7 @@ void abort_recording(LrdViewer *viewer) {
     g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
     g_signal_handler_unblock (viewer->record_button, viewer->recording_button_changed);
-    viewer->dataset_name = NULL;
+    g_clear_pointer(&viewer->dataset_name, g_free);
     viewer->record_type = RECORDTYPE_NONE;
 }
 
@@ -1383,27 +1252,35 @@ gboolean start_recording (LrdViewer *viewer) {
     // Check that we can record
     viewer->record_type = confirm_dataset_name(viewer);
 
-    // Change the buffer size
-    log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
-
-    size_t buffer_size = 0;
-    if (viewer->show_roi) {
-        buffer_size = viewer->roi_w * viewer->roi_h;
-    } else {
-        int width, height;
-        arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-        if (width * height != arv_camera_get_payload (viewer->camera, NULL)) {
-            log_warning("Discrepency between buffer predicted size and payload !");
-        }
-        buffer_size = width * height;
+    // Each buffer holds a full frame as sent by the camera (the payload), whatever the ROI or the pixel format
+    size_t buffer_size = arv_camera_get_payload (viewer->camera, NULL);
+    if (buffer_size == 0) {
+        log_warning("Could not get the frame size from the camera.");
+        buffer_size = 1;
     }
     log_debug("Size of one buffer: %zu bytes (%zu kB)", buffer_size, buffer_size / (1 << 10));
+
+    // Change the buffer size
+    size_t mem_for_buffers = (size_t) (buffer_size * get_actual_frame_rate (viewer) * buffered_seconds);
+    if (mem_for_buffers < min_mem_for_buffers)
+        mem_for_buffers = min_mem_for_buffers;
+    long n_pages = sysconf (_SC_PHYS_PAGES);
+    long page_size = sysconf (_SC_PAGE_SIZE);
+    if (n_pages > 0 && page_size > 0) {
+        size_t max_mem_for_buffers = (size_t) ((double) n_pages * page_size * max_mem_for_buffers_fraction);
+        if (mem_for_buffers > max_mem_for_buffers) {
+            log_warning("Not enough memory to buffer %g s of recording: limited to %zu MB.",
+                        buffered_seconds, max_mem_for_buffers / (1 << 20));
+            mem_for_buffers = max_mem_for_buffers;
+        }
+    }
+    log_debug("Size allowed for buffers: %zu bytes (%zu MB)", mem_for_buffers, mem_for_buffers / (1 << 20));
     n_buffers = mem_for_buffers / buffer_size;
     if (n_buffers < 10) {
         n_buffers = 10;
     }
     log_debug("Number of buffers: %u", n_buffers);
-    log_debug("Size of all buffers stack: %u", n_buffers*buffer_size);
+    log_debug("Size of all buffers stack: %zu bytes (%zu MB)", n_buffers * buffer_size, n_buffers * buffer_size / (1 << 20));
 
     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_usercontrolled_radiobutton))) {
         // user-controlled mode
@@ -1422,6 +1299,7 @@ gboolean start_recording (LrdViewer *viewer) {
                 }
                 break;
             case RECORDTYPE_FLV:
+            case RECORDTYPE_MP4:
                 stop_video(viewer);
                 successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
                 if (successful_launch) {
@@ -1448,17 +1326,11 @@ gboolean start_recording (LrdViewer *viewer) {
             dataset_core_name = viewer->dataset_name;
         log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-        gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
-        gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
-        gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+        set_video_controls_sensitive(viewer, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
         gtk_widget_set_sensitive(viewer->help_description_2, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_3, FALSE);
         gtk_widget_set_sensitive(viewer->help_description_3, FALSE);
-        gtk_widget_set_sensitive(viewer->back_button, FALSE);
-        gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
-        gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
 
         return successful_launch;
     } else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
@@ -1477,19 +1349,13 @@ gboolean start_recording (LrdViewer *viewer) {
                     dataset_core_name = viewer->dataset_name;
                 log_info("Beginning to record a video named '%s'", dataset_core_name);
 
-                gtk_widget_set_sensitive(viewer->camera_settings_button, FALSE);
-                gtk_widget_set_sensitive(viewer->acquisition_settings_button, FALSE);
-                gtk_widget_set_sensitive(viewer->snapshot_button, FALSE);
+                set_video_controls_sensitive(viewer, FALSE);
                 gtk_widget_set_sensitive(viewer->record_button, FALSE);
-                gtk_widget_set_sensitive(viewer->back_button, FALSE);
-                gtk_widget_set_sensitive(viewer->rotate_cw_button, FALSE);
-                gtk_widget_set_sensitive(viewer->flip_vertical_toggle, FALSE);
-                gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, FALSE);
-
                 gtk_widget_set_sensitive(viewer->help_button, FALSE);
 
 
                 g_timeout_add (500, bourrin_recording, viewer);
+                return TRUE;
                 break;
             default:
                 log_info("Unsupported video format");
@@ -1500,38 +1366,73 @@ gboolean start_recording (LrdViewer *viewer) {
         }
 
     }
+
+    log_warning("No recording mode selected.");
+    abort_recording(viewer);
+    return FALSE;
 }
 
-gboolean stop_recording (LrdViewer *viewer) {
+void stop_recording (LrdViewer *viewer) {
     log_trace("Ending the recording process...");
 
     if (ARV_IS_STREAM (viewer->stream))
         arv_stream_set_emit_signals (viewer->stream, FALSE);
 
-    // send end of stream signal. Important for certain formats (mp4 for example).
-    GstFlowReturn ret;
-    g_signal_emit_by_name (GST_APP_SRC (viewer->appsrc), "end-of-stream", &ret);
-
-//    if (GST_IS_PIPELINE (viewer->pipeline))
-//        gst_element_set_state (viewer->pipeline, GST_STATE_NULL);
-
     arv_camera_stop_acquisition (viewer->camera, NULL);
+
+    // Destroying the stream stops its thread and waits for it. This guarantees that no frame
+    // is still being written (record_buffer runs in that thread) when the files are closed below.
+    g_clear_object (&viewer->stream);
+
+    // MP4: complete the metadata with the frame counts (the muxer writes them at the end of the file)
+    if (viewer->record_type == RECORDTYPE_MP4 && GST_IS_BIN (viewer->pipeline)) {
+        GstElement *muxer = gst_bin_get_by_interface (GST_BIN (viewer->pipeline), GST_TYPE_TAG_SETTER);
+        if (muxer != NULL) {
+            set_mp4_tags (viewer, muxer, TRUE);
+            gst_object_unref (muxer);
+        }
+    }
+
+    // send end of stream signal. Important for certain formats (mp4 for example).
+    if (GST_IS_APP_SRC (viewer->appsrc)) {
+        GstFlowReturn ret;
+        g_signal_emit_by_name (GST_APP_SRC (viewer->appsrc), "end-of-stream", &ret);
+    }
+
+    // For video files written by GStreamer, wait for the end of stream to go through the whole pipeline
+    // (encoder, muxer, file) before the pipeline is destroyed (in start_video below): the muxer finalizes
+    // the file at that moment (e.g. the MP4 index), without it the file can be truncated or unreadable.
+    gboolean gstreamer_recording = viewer->record_type == RECORDTYPE_FLV || viewer->record_type == RECORDTYPE_MP4 ||
+                                   viewer->record_type == RECORDTYPE_MKV || viewer->record_type == RECORDTYPE_AVI;
+    if (gstreamer_recording && GST_IS_PIPELINE (viewer->pipeline)) {
+        const GstClockTime eos_timeout = 10 * GST_SECOND;
+        log_debug("Waiting for the video file to be finalized...");
+        GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
+        GstMessage *message = gst_bus_timed_pop_filtered (bus, eos_timeout, GST_MESSAGE_EOS | GST_MESSAGE_ERROR);
+        if (message == NULL) {
+            log_warning("The video file was not finalized after %" G_GUINT64_FORMAT " s: it may be truncated.",
+                        eos_timeout / GST_SECOND);
+        } else if (GST_MESSAGE_TYPE (message) == GST_MESSAGE_ERROR) {
+            GError *error = NULL;
+            gst_message_parse_error (message, &error, NULL);
+            log_warning("Error while finalizing the video file: %s", error->message);
+            g_clear_error (&error);
+        } else {
+            log_debug("Video file finalized.");
+        }
+        g_clear_pointer (&message, gst_message_unref);
+        gst_object_unref (bus);
+    }
 
     close_files();
 
     log_info("End of recording.");
 
-    gtk_widget_set_sensitive (viewer->camera_settings_button, TRUE);
-    gtk_widget_set_sensitive (viewer->acquisition_settings_button, TRUE);
-    gtk_widget_set_sensitive (viewer->snapshot_button, TRUE);
+    set_video_controls_sensitive(viewer, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_2, TRUE);
     gtk_widget_set_sensitive(viewer->help_key_3, TRUE);
     gtk_widget_set_sensitive(viewer->help_description_3, TRUE);
-    gtk_widget_set_sensitive(viewer->back_button, TRUE);
-    gtk_widget_set_sensitive(viewer->rotate_cw_button, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_vertical_toggle, TRUE);
-    gtk_widget_set_sensitive(viewer->flip_horizontal_toggle, TRUE);
     if (is_record_button_active(viewer)) {
         g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
@@ -1547,7 +1448,7 @@ gboolean stop_recording (LrdViewer *viewer) {
     // This will call stop_video, we have every reason to hope it will clean up all the remaining mess
     start_video (viewer);
 
-    viewer->dataset_name = NULL;
+    g_clear_pointer(&viewer->dataset_name, g_free);
     viewer->record_type = RECORDTYPE_NONE;
 }
 
@@ -1556,6 +1457,13 @@ gboolean stop_recording (LrdViewer *viewer) {
 // MANAGE RECORDING STATE
 gboolean is_record_button_active(LrdViewer *viewer) {
     return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(viewer->record_button));
+}
+
+void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer)
+{
+    gtk_widget_set_tooltip_text (GTK_WIDGET (toggle),
+                                 gtk_toggle_button_get_active (toggle) ?
+                                 "Stop recording [SPACE]" : "Start recording [SPACE]");
 }
 
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer)

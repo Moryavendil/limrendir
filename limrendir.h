@@ -18,9 +18,15 @@
 #include <gst/video/video.h>
 #include <stdint.h>
 
+// Compatibility with GStreamer < 1.20, where gst_element_request_pad_simple was still called
+// gst_element_get_request_pad (deprecated since 1.20)
+#if !GST_CHECK_VERSION(1, 20, 0)
+#define gst_element_request_pad_simple(element, name) gst_element_get_request_pad ((element), (name))
+#endif
+
 G_BEGIN_DECLS
 
-#define LIMRENDIR_VERSION "0.7.0"
+#define LIMRENDIR_VERSION "0.8.0"
 
 typedef struct	_LrdViewer	LrdViewer;
 
@@ -200,6 +206,8 @@ struct  _LrdViewer {
     gulong camera_width_changed;
     gulong camera_height_changed;
     gulong pixel_format_changed;
+    gulong flip_vertical_clicked;
+    gulong flip_horizontal_clicked;
     gulong new_buffer_available_video;
     gulong recording_button_changed;
     gulong burst_control_changed;
@@ -215,6 +223,11 @@ struct  _LrdViewer {
     gint64 last_status_bar_update_time_ms;
     guint64 last_n_images;
     guint64 last_n_bytes;
+    gint n_display_skips; // frames not displayed to keep buffers for the stream (atomic: stream thread)
+    guint last_n_display_skips;
+
+    // Number of buffers given to the current stream
+    unsigned n_stream_buffers;
 
     guint recording_snapshots_update_event;
 
@@ -261,14 +274,8 @@ struct  _LrdViewer {
     gulong keypress_handler_id;
 
     gboolean is_fullscreen; //Retrieving the fullscreen state directly by asking is_fullscreen for a window is only possible in GTK4 so we have to track fullscreen state ourselves in GTK3.
-
-
-    gulong video_window_xid;
 };
 
-extern gboolean has_autovideo_sink;
-extern gboolean has_gtksink;
-extern gboolean has_gtkglsink;
 extern gboolean has_bayer2rgb;
 
 // Notifications
@@ -292,6 +299,9 @@ typedef enum {
 void select_mode (LrdViewer *viewer, TrnViewerMode mode);
 
 // VIDEO MODE
+// Enables or disables the controls of the video mode (settings, snapshot, back, rotation, flips)
+void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive);
+
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer);
 
 // Image transforms
@@ -302,6 +312,8 @@ void rotate_cw_cb (GtkButton *button, LrdViewer *viewer);
 void flip_horizontal_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer);
+
+void reset_image_transform (LrdViewer *viewer);
 
 // Snapshot saving
 gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const char *mime_type, GError **error);
@@ -438,12 +450,9 @@ void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
 
         void finalize_best_exposure_search (LrdViewer *viewer);
 
-        uint8_t get_max_px_value(LrdViewer *viewer, int n_frames, int n_frames_to_skip);
+        double measure_mean_max_pixel_value (LrdViewer *viewer);
 
-// The blocking version (simple but annoying)
-        void best_exposure_search_blocking (LrdViewer *viewer);
-
-// The non blocking version (multi-threaded so not blocking)
+// One measurement per step, run from the main loop
         gboolean best_exposure_search_next_step(void *data);
 
         void best_exposure_search_nonblocking (LrdViewer *viewer);
@@ -462,10 +471,6 @@ void constrain_roi(LrdViewer *viewer);
 void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height);
 void crop_to_roi(LrdViewer *viewer);
 
-// Buttons on camera mode
-
-void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer);
-
 // Video streaming
 
 /* return time from timespec-structure in milliseconds */
@@ -474,12 +479,28 @@ long clock_millis(struct timespec t);
 /* time difference in milliseconds */
 long clock_diff_millis(struct timespec t1, struct timespec t2);
 
+// Display pipeline: get_display_caps_string checks the pixel format (NULL if it cannot be displayed),
+// create_display_pipeline builds appsrc -> ... -> viewer->transform, add_display_sink adds viewer->videosink
+// (to be linked by the caller) and start_display_pipeline plays it.
+const char *get_display_caps_string (LrdViewer *viewer);
+void create_display_pipeline (LrdViewer *viewer, const char *caps_string);
+void add_display_sink (LrdViewer *viewer);
+void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint framerate_n, gint framerate_d);
+
+// Applies the GigE Vision settings chosen on the command line to the stream (nothing to do for other cameras)
+void configure_stream (LrdViewer *viewer);
+
+// Gives n new full-frame buffers to the stream
+gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream);
+void push_new_buffers (LrdViewer *viewer, unsigned n);
+
+// Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure
+ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback);
+
 gboolean start_video (LrdViewer *viewer);
 void stop_video (LrdViewer *viewer);
 
 gboolean update_status_bar_cb (void *data);
-
-GstBusSyncReply bus_sync_handler (GstBus *bus, GstMessage *message, gpointer user_data);
 
 GstBuffer * arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer);
 void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *buffer);
@@ -488,9 +509,10 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 gboolean is_buffer_successful(ArvBuffer *buffer);
 
 gboolean is_record_button_active(LrdViewer *viewer);
+void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer);
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 gboolean start_recording (LrdViewer *viewer);
-gboolean stop_recording (LrdViewer *viewer);
+void stop_recording (LrdViewer *viewer);
 
 
 G_END_DECLS

@@ -30,11 +30,11 @@ static void check_usbfs_memory (void)
         return;
     }
 
-    log_warning("The USB memory limit is low (usbfs_memory_mb = %" G_GUINT64_FORMAT " MB, %d MB recommended): "
-                "USB3 cameras may lose frames at high frame rates.", usbfs_memory_mb, USBFS_MEMORY_MB_RECOMMENDED);
-    log_warning("    To raise it until the next reboot: "
+    log_warning("The USB memory limit is low (usbfs_memory_mb = %" G_GUINT64_FORMAT " MB): "
+                "USB3 cameras may lose frames at high frame rates.", usbfs_memory_mb);
+    log_info("To raise USB memory limit until next reboot: "
                 "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
-    log_warning("    To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
+    log_info("To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
                 "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
                 USBFS_MEMORY_MB_RECOMMENDED);
 }
@@ -105,9 +105,25 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 
 }
 
+// Enables or disables the video mode controls that must not be used during a recording or an exposure search
+void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
+{
+    gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
+    gtk_widget_set_sensitive (viewer->acquisition_settings_button, sensitive);
+    gtk_widget_set_sensitive (viewer->snapshot_button, sensitive);
+    gtk_widget_set_sensitive (viewer->back_button, sensitive);
+    gtk_widget_set_sensitive (viewer->rotate_cw_button, sensitive);
+    gtk_widget_set_sensitive (viewer->flip_vertical_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->flip_horizontal_toggle, sensitive);
+}
+
 // VIDEO MODE
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer)
 {
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        log_warning ("No camera opened: cannot switch to video mode.");
+        return;
+    }
     camera_region_cb(NULL, viewer);
     select_mode (viewer, TRN_VIEWER_MODE_VIDEO);
 }
@@ -145,6 +161,22 @@ void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer)
     viewer->flip_vertical = gtk_toggle_button_get_active (toggle);
 
     update_transform (viewer);
+}
+
+// Back to no rotation and no flip, with the flip buttons released (from aravis c4a70719e).
+// Called when a new pipeline is created, since its videoflip element starts untransformed.
+void reset_image_transform (LrdViewer *viewer)
+{
+    viewer->rotation = 0;
+    viewer->flip_horizontal = FALSE;
+    viewer->flip_vertical = FALSE;
+
+    g_signal_handler_block (viewer->flip_vertical_toggle, viewer->flip_vertical_clicked);
+    g_signal_handler_block (viewer->flip_horizontal_toggle, viewer->flip_horizontal_clicked);
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->flip_vertical_toggle), FALSE);
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->flip_horizontal_toggle), FALSE);
+    g_signal_handler_unblock (viewer->flip_vertical_toggle, viewer->flip_vertical_clicked);
+    g_signal_handler_unblock (viewer->flip_horizontal_toggle, viewer->flip_horizontal_clicked);
 }
 
 // Snapshot saving
@@ -208,7 +240,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     data = arv_buffer_get_data (buffer, &size);
 
     date = g_date_time_new_now_local ();
-    date_string = g_date_time_format (date, "%Y-%m-%d-%H:%M:%S");
+    date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
     filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s.raw",
                                 arv_camera_get_vendor_name (viewer->camera, NULL),
                                 arv_camera_get_device_serial_number (viewer->camera, NULL),
@@ -384,10 +416,17 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 
     stop_camera (viewer);
 
-    viewer->camera = arv_camera_new (camera_id, NULL);
+    GError *error = NULL;
+    viewer->camera = arv_camera_new (camera_id, &error);
 
-    if (!ARV_IS_CAMERA (viewer->camera))
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        const char *reason = error != NULL ? error->message : "unknown error";
+        log_error ("Could not open the camera %s: %s (is it used by another program?)", camera_id, reason);
+        arv_viewer_show_notification (viewer, "Could not open the camera (is it used by another program?)", reason);
+        g_clear_error (&error);
+        g_clear_object (&viewer->camera);
         return FALSE;
+    }
 
     arv_device_set_register_cache_policy (arv_camera_get_device (viewer->camera),
                                           viewer->register_cache_policy);
@@ -416,7 +455,7 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
     pixel_formats = arv_camera_dup_available_pixel_formats (viewer->camera, &n_pixel_formats, NULL);
     g_assert (n_pixel_formats == n_pixel_format_strings);
     pixel_format_string = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
-    for (i = 0; i < n_pixel_formats; i++) {
+    for (i = 0; i < (gint) n_pixel_formats; i++) {
         const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_formats[i]);
         gboolean valid = FALSE;
 

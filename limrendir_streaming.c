@@ -4,13 +4,8 @@
 #include <gst/video/videooverlay.h>
 #include <arv.h>
 #include <limrendir.h>
+#include <arvgvstreamprivate.h>
 #include <logroutines.h>
-#ifdef GDK_WINDOWING_X11
-#include <gdk/gdkx.h>  // for GDK_WINDOW_XID
-#endif
-#ifdef GDK_WINDOWING_WIN32
-#include <gdk/gdkwin32.h>  // for GDK_WINDOW_HWND
-#endif
 
 
 // These are straight-up copy-pasted form gevCapture
@@ -36,16 +31,6 @@ unsigned n_buffers_streaming = 10;
 gint display_fps_streaming = 50;
 // Time since last update
 struct timespec clock_last_snapshot_streaming, clock_now_streaming;
-
-void video_frame_realize_cb (GtkWidget * widget, LrdViewer *viewer)
-{
-#ifdef GDK_WINDOWING_X11
-    viewer->video_window_xid = GDK_WINDOW_XID (gtk_widget_get_window (widget));
-#endif
-#ifdef GDK_WINDOWING_WIN32
-    viewer->video_window_xid = (guintptr) GDK_WINDOW_HWND (gtk_widget_get_window (widget));
-#endif
-}
 
 void remove_widget (GtkWidget *widget, gpointer data)
 {
@@ -263,7 +248,6 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
 static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
 {
     ArvBuffer *arv_buffer;
-    gint n_input_buffers, n_output_buffers;
 
     arv_buffer = arv_stream_pop_buffer (stream);
     if (arv_buffer == NULL)
@@ -280,7 +264,8 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     } else {
 
         // Push back the buffer (in the right queue)
-        if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000) {
+        if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000
+            && can_display_buffer (viewer, stream)) {
             clock_last_snapshot_streaming = clock_now_streaming;
             g_clear_object(&viewer->last_buffer);
             viewer->last_buffer = g_object_ref(arv_buffer);
@@ -291,38 +276,215 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
     }
 }
 
-// handles the bus... not sure what that does exactly
-GstBusSyncReply bus_sync_handler (GstBus *bus, GstMessage *message, gpointer user_data)
+
+// Creates the acquisition stream of the camera. On failure, tells the user why and returns NULL
+// (the camera itself is left untouched).
+ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback)
 {
-    LrdViewer *viewer = user_data;
-
-    if (!gst_is_video_overlay_prepare_window_handle_message(message))
-        return GST_BUS_PASS;
-
-    if (viewer->video_window_xid != 0) {
-        GstVideoOverlay *videooverlay;
-
-        videooverlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
-        gst_video_overlay_set_window_handle (videooverlay, viewer->video_window_xid);
-    } else {
-        g_warning ("Should have obtained video_window_xid by now!");
+    GError *error = NULL;
+    // The buffers of the new stream are counted by push_new_buffers
+    viewer->n_stream_buffers = 0;
+    ArvStream *stream = arv_camera_create_stream (viewer->camera, callback, NULL, &error);
+    if (!ARV_IS_STREAM (stream)) {
+        const char *reason = error != NULL ? error->message : "unknown error";
+        log_error ("Could not create the camera stream: %s", reason);
+        arv_viewer_show_notification (viewer, "Could not start the camera stream", reason);
+        g_clear_error (&error);
+        g_clear_object (&stream);
     }
-
-    gst_message_unref (message);
-
-    return GST_BUS_DROP;
+    return stream;
 }
 
+// Sets the stream properties (socket buffer size, packet resend, timeouts, frame retention time) chosen on the
+// command line. They only exist for GV (GigE Vision) streams: nothing to do for USB3 Vision or fake cameras.
+void configure_stream (LrdViewer *viewer)
+{
+    if (ARV_IS_GV_STREAM (viewer->stream)) {
+
+        log_debug("Auto socket buffer size: %s", viewer->auto_socket_buffer ? "yes" : "no");
+        if (viewer->auto_socket_buffer) {
+            g_object_set(viewer->stream,
+                         "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+                         "socket-buffer-size", 0,
+                         NULL);
+        } else {
+            log_info("Auto socket buffer size is off. You may want to try it on for better performances.");
+        }
+
+        log_debug("Packet resend: %s", viewer->packet_resend ? "yes" : "no");
+        if (!viewer->packet_resend) {
+            g_object_set (viewer->stream,
+                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+                          NULL);
+        }
+
+        unsigned int initial_packet_timeout = (unsigned) (viewer->initial_packet_timeout * 1000);
+        unsigned int packet_timeout = (unsigned) (viewer->packet_timeout * 1000);
+        unsigned int frame_retention = (unsigned) (viewer->frame_retention * 1000);
+
+        g_object_set (viewer->stream,
+                      "initial-packet-timeout", initial_packet_timeout,
+                      "packet-timeout", packet_timeout,
+                      "frame-retention", frame_retention,
+                      NULL);
+
+
+        g_autofree char* default_initial_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                             (unsigned) ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT);
+        g_autofree char* default_packet_timeout_message = g_strdup_printf("(default value is %u us)",
+                                                                     (unsigned) ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT);
+        g_autofree char* default_frame_retention_message = g_strdup_printf("(default value is %u us)",
+                                                                      (unsigned) ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT);
+        log_debug("Initial packet timeout: %u us %s", initial_packet_timeout,
+                  initial_packet_timeout == ARV_GV_STREAM_INITIAL_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_initial_packet_timeout_message);
+        log_debug("Packet timeout: %u us %s", packet_timeout,
+                  packet_timeout == ARV_GV_STREAM_PACKET_TIMEOUT_US_DEFAULT ? "(default)" : default_packet_timeout_message);
+        log_debug("Frame retention: %u us %s", frame_retention,
+                  frame_retention == ARV_GV_STREAM_FRAME_RETENTION_US_DEFAULT ? "(default)" : default_frame_retention_message);
+    } else {
+        // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
+        log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
+    }
+}
+
+// Maximum number of the stream buffers that the display may hold at the same time
+#define LRD_MAX_DISPLAY_BUFFERS 3
+
+// Tells whether a buffer just popped from the stream may be sent to the display. Otherwise, the caller must give
+// it back to the stream.
+// A buffer sent to the display is only given back to the stream when GStreamer is done with it. If the display
+// is too slow, the buffers pile up in the GStreamer pipeline and the stream thread runs out of buffers to fill, so
+// frames are lost (during a recording too). Two rules prevent it:
+// - the display never holds more than LRD_MAX_DISPLAY_BUFFERS buffers;
+// - the stream must still own a buffer (from aravis 0b48b0ea9). Since every stream gets at least 10 buffers, the
+//   first rule already ensures it: this one is only a safety net.
+gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream)
+{
+    gint n_input_buffers, n_output_buffers;
+    gint n_buffer_filling = 0;
+
+#if ARAVIS_CHECK_VERSION(0, 9, 0)
+    arv_stream_get_n_owned_buffers (stream, &n_input_buffers, &n_output_buffers, &n_buffer_filling);
+#else
+    // Aravis 0.8 cannot count the buffer being filled: it is counted as held by the display (more cautious)
+    arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
+#endif
+    gint n_owned = n_input_buffers + n_output_buffers + n_buffer_filling;
+    // The other buffers are held by the display, except the one the caller has just popped
+    gint n_held_by_display = (gint) viewer->n_stream_buffers - n_owned - 1;
+
+    if (n_owned > 0 && n_held_by_display < LRD_MAX_DISPLAY_BUFFERS)
+        return TRUE;
+
+    g_atomic_int_inc (&viewer->n_display_skips);
+    return FALSE;
+}
+
+// Gives n new buffers, each holding one full frame, to the stream
+void push_new_buffers (LrdViewer *viewer, unsigned n)
+{
+    unsigned payload = arv_camera_get_payload (viewer->camera, NULL);
+    for (unsigned i = 0; i < n; i++)
+        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    viewer->n_stream_buffers += n;
+}
+
+// DISPLAY PIPELINE (shared by the live video and the recordings)
+
+// Returns the GStreamer caps of the camera pixel format, or NULL (and stops the video) if it cannot be displayed
+const char *get_display_caps_string (LrdViewer *viewer)
+{
+    ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
+    const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
+    if (caps_string == NULL) {
+        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (unsigned) pixel_format);
+        stop_video (viewer);
+        return NULL;
+    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
+        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (unsigned) pixel_format);
+        stop_video (viewer);
+        return NULL;
+    }
+    return caps_string;
+}
+
+// Creates viewer->pipeline with: appsrc -> [bayer2rgb] -> videoconvert -> videoflip (viewer->transform).
+// What comes after viewer->transform (display sink, recording branch) is up to the caller.
+void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
+{
+    log_trace("    Creating gstreamer pipeline.");
+    viewer->pipeline = gst_pipeline_new ("pipeline");
+    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
+    GstElement *videoconvert = gst_element_factory_make ("videoconvert", NULL);
+    viewer->transform = gst_element_factory_make ("videoflip", NULL);
+
+    log_trace("    Adding elements to the gstreamer pipeline.");
+    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
+
+    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
+        log_trace("    The pixel format has prefix 'video/x-bayer', adding a bayer2rgb element to the pipeline.");
+        GstElement *bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
+        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
+        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
+    } else {
+        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
+    }
+}
+
+// Creates the video sink (viewer->videosink) and adds it to the pipeline, without linking it.
+// The video is shown inside the window by gtksink (required by gstreamer_plugin_check).
+void add_display_sink (LrdViewer *viewer)
+{
+    GtkWidget *video_widget;
+
+    log_trace("    A video sink of type 'gtksink' is used.");
+    viewer->videosink = gst_element_factory_make ("gtksink", NULL);
+
+    g_object_get (viewer->videosink, "widget", &video_widget, NULL);
+    gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
+    gtk_widget_show (video_widget);
+    g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
+    gtk_widget_set_size_request (video_widget, 640, 480);
+
+    gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
+
+    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
+}
+
+// Sets the source caps, plays the pipeline and starts the status bar updates.
+// With framerate_n = 0, frames are timestamped when they arrive (live display). Otherwise the stream has this
+// fixed frame rate and the caller sets the timestamps of the frames itself.
+void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint framerate_n, gint framerate_d)
+{
+    gint width, height;
+
+    log_trace("    Setting source caps.");
+    GstCaps *caps = gst_caps_from_string (caps_string);
+    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+    gst_caps_set_simple (caps,
+                         "width", G_TYPE_INT, width,
+                         "height", G_TYPE_INT, height,
+                         "framerate", GST_TYPE_FRACTION, framerate_n, framerate_d,
+                         NULL);
+    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
+    gst_caps_unref (caps);
+
+    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE,
+                 "do-timestamp", framerate_n == 0, NULL);
+
+    log_trace("    Pipeline in playing state.");
+    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
+
+    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
+    viewer->last_n_images = 0;
+    viewer->last_n_bytes = 0;
+    viewer->last_n_display_skips = g_atomic_int_get (&viewer->n_display_skips);
+    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+}
 
 gboolean start_video (LrdViewer *viewer)
 {
     log_debug("Start the video stream.");
-    GstElement *videoconvert;
-    GstCaps *caps;
-    ArvPixelFormat pixel_format;
-    unsigned payload;
-    unsigned i;
-    gint width, height;
     const char *caps_string;
 
     if (!ARV_IS_CAMERA (viewer->camera))
@@ -330,138 +492,29 @@ gboolean start_video (LrdViewer *viewer)
 
     stop_video (viewer);
 
-    viewer->rotation = 0;
-    viewer->stream = arv_camera_create_stream(viewer->camera, stream_video_cb, NULL, NULL);
-    if (!ARV_IS_STREAM (viewer->stream)) {
-        g_object_unref (viewer->camera);
-        viewer->camera = NULL;
+    reset_image_transform (viewer);
+    viewer->stream = create_camera_stream (viewer, stream_video_cb);
+    if (viewer->stream == NULL)
         return FALSE;
-    }
 
-    if (ARV_IS_GV_STREAM (viewer->stream)) {
-        if (viewer->auto_socket_buffer)
-            g_object_set (viewer->stream,
-                          "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-                          "socket-buffer-size", 0,
-                          NULL);
-        if (!viewer->packet_resend)
-            g_object_set (viewer->stream,
-                          "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-                          NULL);
-        g_object_set (viewer->stream,
-                      "initial-packet-timeout", (unsigned) viewer->initial_packet_timeout * 1000,
-                      "packet-timeout", (unsigned) viewer->packet_timeout * 1000,
-                      "frame-retention", (unsigned) viewer->frame_retention * 1000,
-                      NULL);
-    }
+    configure_stream (viewer);
 
     arv_stream_set_emit_signals (viewer->stream, TRUE);
-    payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (i = 0; i < n_buffers_streaming; i++)
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    push_new_buffers (viewer, n_buffers_streaming);
 
     set_camera_control_widgets(viewer);
     set_acquisition_settings_widgets(viewer);
-    pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-
-    caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (caps_string == NULL) {
-        g_message ("GStreamer cannot understand this camera pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
+    caps_string = get_display_caps_string (viewer);
+    if (caps_string == NULL)
         return FALSE;
-    } else if (g_str_has_prefix (caps_string, "video/x-bayer") && !has_bayer2rgb) {
-        g_message ("GStreamer bayer plugin is required for pixel format: 0x%x!", (int) pixel_format);
-        stop_video (viewer);
-        return FALSE;
-    }
 
     arv_camera_set_acquisition_mode (viewer->camera, ARV_ACQUISITION_MODE_CONTINUOUS, NULL);
     arv_camera_start_acquisition (viewer->camera, NULL);
 
-    viewer->pipeline = gst_pipeline_new ("pipeline");
-
-    viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
-    videoconvert = gst_element_factory_make ("videoconvert", NULL);
-    viewer->transform = gst_element_factory_make ("videoflip", NULL);
-
-    gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
-
-    if (g_str_has_prefix (caps_string, "video/x-bayer")) {
-        GstElement *bayer2rgb;
-
-        bayer2rgb = gst_element_factory_make ("bayer2rgb", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), bayer2rgb);
-        gst_element_link_many (viewer->appsrc, bayer2rgb, videoconvert, viewer->transform, NULL);
-    } else {
-        gst_element_link_many (viewer->appsrc, videoconvert, viewer->transform, NULL);
-    }
-
-    if (has_gtksink || has_gtkglsink) {
-        GtkWidget *video_widget;
-
-#if 0 /* Disable glsink for now, it crashes when we come back to camera list with:
-	(lt-arv-viewer:29151): Gdk-WARNING **: eglMakeCurrent failed
-	(lt-arv-viewer:29151): Gdk-WARNING **: eglMakeCurrent failed
-	(lt-arv-viewer:29151): Gdk-WARNING **: eglMakeCurrent failed
-	Erreur de segmentation (core dumped)
-	*/
-
-        videosink = gst_element_factory_make ("gtkglsink", NULL);
-
-		if (GST_IS_ELEMENT (videosink)) {
-			GstElement *glupload;
-
-			glupload = gst_element_factory_make ("glupload", NULL);
-			gst_bin_add_many (GST_BIN (viewer->pipeline), glupload, videosink, NULL);
-			gst_element_link_many (viewer->transform, glupload, videosink, NULL);
-		} else {
-#else
-        {
-#endif
-            viewer->videosink = gst_element_factory_make ("gtksink", NULL);
-            gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->videosink, NULL);
-            gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-        }
-
-        g_object_get (viewer->videosink, "widget", &video_widget, NULL);
-        gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
-        gtk_widget_show (video_widget);
-        g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
-        gtk_widget_set_size_request (video_widget, 640, 480);
-    } else {
-        viewer->videosink = gst_element_factory_make ("autovideosink", NULL);
-        gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
-        gst_element_link_many (viewer->transform, viewer->videosink, NULL);
-    }
-
-    g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
-
-    caps = gst_caps_from_string (caps_string);
-    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-    gst_caps_set_simple (caps,
-                         "width", G_TYPE_INT, width,
-                         "height", G_TYPE_INT, height,
-                         "framerate", GST_TYPE_FRACTION, 0, 1,
-                         NULL);
-    gst_app_src_set_caps (GST_APP_SRC (viewer->appsrc), caps);
-    gst_caps_unref (caps);
-
-    g_object_set(G_OBJECT (viewer->appsrc), "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
-
-    if (!has_gtkglsink && !has_gtksink) {
-        GstBus *bus;
-
-        bus = gst_pipeline_get_bus (GST_PIPELINE (viewer->pipeline));
-        gst_bus_set_sync_handler (bus, (GstBusSyncHandler) bus_sync_handler, viewer, NULL);
-        gst_object_unref (bus);
-    }
-
-    gst_element_set_state (viewer->pipeline, GST_STATE_PLAYING);
-
-    viewer->last_status_bar_update_time_ms = g_get_real_time () / 1000;
-    viewer->last_n_images = 0;
-    viewer->last_n_bytes = 0;
-    viewer->status_bar_update_event = g_timeout_add_seconds (1, update_status_bar_cb, viewer);
+    create_display_pipeline (viewer, caps_string);
+    add_display_sink (viewer);
+    gst_element_link (viewer->transform, viewer->videosink);
+    start_display_pipeline (viewer, caps_string, 0, 1);
 
     viewer->new_buffer_available_video = g_signal_connect (viewer->stream, "new-buffer", G_CALLBACK (new_buffer_cb), viewer);
 
@@ -592,7 +645,7 @@ gboolean update_status_bar_cb (void *data)
         float percent_saturated_0 = 100 * (float) saturated_0 / (float) buffer_size;
         float percent_saturated_255 = 100 * (float) saturated_255 / (float) buffer_size;
 //        text = g_strdup_printf(" %d - %d ", valbuffermax, valbuffermin);
-        text = g_strdup_printf("(%.2f %% saturated) %d - %d (%.2f %% saturated)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
+        text = g_strdup_printf("(%.2f %%) %d – %d (%.2f %%)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
 //        text = g_strdup_printf("(%d / %d) (%.5f %% saturated)", saturated_0, buffer_size, percent_saturated_0);
 
     }
@@ -609,6 +662,14 @@ gboolean update_status_bar_cb (void *data)
     viewer->last_status_bar_update_time_ms = time_ms;
     viewer->last_n_images = n_images;
     viewer->last_n_bytes = n_bytes;
+
+    // Frames not displayed to keep buffers for the stream (see can_display_buffer)
+    guint n_display_skips = (guint) g_atomic_int_get (&viewer->n_display_skips);
+    if (n_display_skips != viewer->last_n_display_skips) {
+        log_debug ("%u frame(s) not displayed in the last second: the display is too slow and holds too many buffers.",
+                   n_display_skips - viewer->last_n_display_skips);
+        viewer->last_n_display_skips = n_display_skips;
+    }
 
     return TRUE;
 }

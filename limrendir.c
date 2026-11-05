@@ -11,9 +11,6 @@
 
 #define ARV_VIEWER_NOTIFICATION_TIMEOUT 10
 
-gboolean has_autovideo_sink = FALSE;
-gboolean has_gtksink = FALSE;
-gboolean has_gtkglsink = FALSE;
 gboolean has_bayer2rgb = FALSE;
 
 static gboolean create_fake_camera = FALSE;
@@ -33,7 +30,8 @@ gstreamer_plugin_check (void)
 		static char *plugins[] = {
 			"appsrc",
 			"videoconvert",
-			"videoflip"
+			"videoflip",
+			"gtksink"
 		};
 
 		registry = gst_registry_get ();
@@ -49,36 +47,10 @@ gstreamer_plugin_check (void)
 				g_object_unref (feature);
 		}
 
-		feature = gst_registry_lookup_feature (registry, "autovideosink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_autovideo_sink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'autovideosink' present: %s", has_autovideo_sink ? "yes" : "no");
-
-		feature = gst_registry_lookup_feature (registry, "gtksink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_gtksink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'gtksink' present: %s", has_gtksink ? "yes" : "no");
-
-		feature = gst_registry_lookup_feature (registry, "gtkglsink");
-		if (GST_IS_PLUGIN_FEATURE (feature)) {
-			has_gtkglsink = TRUE;
-			g_object_unref (feature);
-		}
-        log_debug ("GStreamer video output plugin 'gtkglsink' present: %s", has_gtkglsink ? "yes" : "no");
-
 		feature = gst_registry_lookup_feature (registry, "bayer2rgb");
 		if (GST_IS_PLUGIN_FEATURE (feature)) {
 			has_bayer2rgb = TRUE;
 			g_object_unref (feature);
-		}
-
-		if (!has_autovideo_sink && !has_gtkglsink && !has_gtksink) {
-			g_print ("Missing GStreamer video output plugin (autovideosink, gtksink or gtkglsink)\n");
-			success = FALSE;
 		}
 
 		if (!success)
@@ -163,13 +135,16 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
     char *camera_id = NULL;
 
     if (viewer->gc_option_camera_name != NULL) {
-        gboolean success = FALSE;
         for (int i_camera = 0; i_camera < number_of_available_cameras; i_camera++) {
             gtk_tree_model_iter_nth_child(tree_model, &iter, NULL, i_camera);
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
-            if (g_str_equal(viewer->gc_option_camera_name, camera_id)) {
+            gboolean const is_wanted_camera = g_str_equal(viewer->gc_option_camera_name, camera_id);
+            g_free(camera_id);
+            if (is_wanted_camera) {
                 gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW (viewer->camera_tree)),
                                                &iter);
+                if (!ARV_IS_CAMERA (viewer->camera))
+                    return FALSE; // start_camera already said why
                 log_info("Selected camera %s", viewer->gc_option_camera_name);
                 return TRUE;
             }
@@ -184,6 +159,7 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
                 gtk_tree_model_iter_nth_child(tree_model, &iter, NULL, i_camera);
                 gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
                 log_info("    - %s", camera_id);
+                g_free(camera_id);
             }
         }
     } else {
@@ -192,7 +168,12 @@ gboolean smart_camera_selection(LrdViewer *viewer) {
             gtk_tree_selection_select_iter (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), &iter);
 
             gtk_tree_model_get(tree_model, &iter, 0, &camera_id, -1);
-            log_info("Auto-selected the only camera available: %s", camera_id);
+            if (!ARV_IS_CAMERA (viewer->camera)) {
+                g_free(camera_id);
+                return FALSE; // start_camera already said why
+            }
+            log_debug("Auto-selected the only camera available: %s", camera_id);
+            g_free(camera_id);
             return TRUE;
         }
     }
@@ -204,40 +185,43 @@ apply_gc_options(LrdViewer *viewer) {
 
     const gboolean there_is_a_camera = smart_camera_selection(viewer);
 
-    g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_block (viewer->camera_height, viewer->camera_height_changed);
-
-    if (viewer->gc_option_x_offset > -1)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_x), viewer->gc_option_x_offset);
-    if (viewer->gc_option_y_offset > -1)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_y), viewer->gc_option_y_offset);
-    if (viewer->gc_option_width > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_width), viewer->gc_option_width);
-    if (viewer->gc_option_height > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_height), viewer->gc_option_height);
-
-    g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
-    g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
-    g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);
-    g_signal_handler_unblock (viewer->camera_height, viewer->camera_height_changed);
-
-    g_signal_handler_block (viewer->camera_binning_x, viewer->camera_binning_x_changed);
-    g_signal_handler_block (viewer->camera_binning_y, viewer->camera_binning_y_changed);
-
-    if (viewer->gc_option_horizontal_binning > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_x), viewer->gc_option_horizontal_binning);
-    if (viewer->gc_option_vertical_binning > 0)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_y), viewer->gc_option_vertical_binning);
-
-    g_signal_handler_unblock (viewer->camera_binning_x, viewer->camera_binning_x_changed);
-    g_signal_handler_unblock (viewer->camera_binning_y, viewer->camera_binning_y_changed);
-
     // this only works if a camera is selected
     if (there_is_a_camera) {
-        camera_region_cb(NULL, viewer);
+        // Binning first: it changes the possible region. Each callback reloads all the region and binning spin
+        // buttons from the camera, so the region spin buttons are only set once the binning is applied.
+        g_signal_handler_block (viewer->camera_binning_x, viewer->camera_binning_x_changed);
+        g_signal_handler_block (viewer->camera_binning_y, viewer->camera_binning_y_changed);
+
+        if (viewer->gc_option_horizontal_binning > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_x), viewer->gc_option_horizontal_binning);
+        if (viewer->gc_option_vertical_binning > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_binning_y), viewer->gc_option_vertical_binning);
+
+        g_signal_handler_unblock (viewer->camera_binning_x, viewer->camera_binning_x_changed);
+        g_signal_handler_unblock (viewer->camera_binning_y, viewer->camera_binning_y_changed);
+
         camera_binning_cb(NULL, viewer);
+
+        g_signal_handler_block (viewer->camera_x, viewer->camera_x_changed);
+        g_signal_handler_block (viewer->camera_y, viewer->camera_y_changed);
+        g_signal_handler_block (viewer->camera_width, viewer->camera_width_changed);
+        g_signal_handler_block (viewer->camera_height, viewer->camera_height_changed);
+
+        if (viewer->gc_option_x_offset > -1)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_x), viewer->gc_option_x_offset);
+        if (viewer->gc_option_y_offset > -1)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_y), viewer->gc_option_y_offset);
+        if (viewer->gc_option_width > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_width), viewer->gc_option_width);
+        if (viewer->gc_option_height > 0)
+            gtk_spin_button_set_value (GTK_SPIN_BUTTON(viewer->camera_height), viewer->gc_option_height);
+
+        g_signal_handler_unblock (viewer->camera_x, viewer->camera_x_changed);
+        g_signal_handler_unblock (viewer->camera_y, viewer->camera_y_changed);
+        g_signal_handler_unblock (viewer->camera_width, viewer->camera_width_changed);
+        g_signal_handler_unblock (viewer->camera_height, viewer->camera_height_changed);
+
+        camera_region_cb(NULL, viewer);
 
         // Exposure time
         if (viewer->gc_option_exposure_time_us != gc_option_exposure_time_us_default) {
@@ -277,7 +261,7 @@ limrendir_set_options (LrdViewer *viewer,
     g_return_if_fail (viewer != NULL);
 
     viewer->gevcapture_mode = lrd_option_gevcapture_mode;
-    viewer->dataset_name = lrd_option_dataset_name;
+    viewer->dataset_name = g_strdup (lrd_option_dataset_name);
     create_fake_camera = lrd_option_create_fake_camera;
 }
 
@@ -329,7 +313,7 @@ static void
 arv_viewer_quit_cb (GtkApplicationWindow *window, LrdViewer *viewer)
 {
     log_debug("Quit callback called.");
-    log_info("Au revoir!");
+    // log_info("Au revoir!");
     stop_camera (viewer);
     g_application_quit (G_APPLICATION (viewer));
 }
@@ -358,8 +342,8 @@ activate (GApplication *application)
     // Grid
     viewer->grid_type = GRID_NOGRID;
 
-// FOR THE LINE BELOW TO WORK, PUT THE FILE "limrendir.ui" IN THE FOLDER WITH THE EXECUTABLE
-    builder = gtk_builder_new_from_file ("limrendir.ui");
+    // limrendir.ui is embedded in the executable (see limrendir.gresource.xml)
+    builder = gtk_builder_new_from_resource ("/org/limrendir/limrendir.ui");
 
 	viewer->main_window = GTK_WIDGET (gtk_builder_get_object (builder, "main_window"));
 	viewer->main_stack = GTK_WIDGET (gtk_builder_get_object (builder, "main_stack"));
@@ -453,8 +437,10 @@ activate (GApplication *application)
 	g_signal_connect (viewer->main_window, "destroy", G_CALLBACK (arv_viewer_quit_cb), viewer);
 	g_signal_connect (viewer->snapshot_button, "clicked", G_CALLBACK (snapshot_cb), viewer);
 	g_signal_connect (viewer->rotate_cw_button, "clicked", G_CALLBACK (rotate_cw_cb), viewer);
-	g_signal_connect (viewer->flip_horizontal_toggle, "clicked", G_CALLBACK (flip_horizontal_cb), viewer);
-	g_signal_connect (viewer->flip_vertical_toggle, "clicked", G_CALLBACK (flip_vertical_cb), viewer);
+	viewer->flip_horizontal_clicked = g_signal_connect (viewer->flip_horizontal_toggle, "clicked",
+	                                                    G_CALLBACK (flip_horizontal_cb), viewer);
+	viewer->flip_vertical_clicked = g_signal_connect (viewer->flip_vertical_toggle, "clicked",
+	                                                  G_CALLBACK (flip_vertical_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "activate", G_CALLBACK (frame_rate_entry_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "focus-out-event", G_CALLBACK (frame_rate_entry_focus_cb), viewer);
 
@@ -471,11 +457,8 @@ activate (GApplication *application)
 
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
+    g_signal_connect (viewer->record_button, "toggled", G_CALLBACK (record_button_update_tooltip), viewer);
     g_signal_connect (viewer->max_frame_rate_button, "toggled", G_CALLBACK(apply_max_frame_rate_if_wanted), viewer);
-
-	if (!has_gtksink && !has_gtkglsink) {
-		g_signal_connect (viewer->video_frame, "realize", G_CALLBACK (video_frame_realize_cb), viewer);
-	}
 
 	viewer->camera_selected = g_signal_connect (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), "changed",
 						    G_CALLBACK (camera_selection_changed_cb), viewer);

@@ -23,7 +23,8 @@ void help(LrdViewer *viewer) {
 
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
         printf("a .................. See the largest possible field of view                     \n");
-        printf("z .................. Zoom on the center of the current field of view            \n");
+        printf("z .................. Zoom in (x2) to the center of the field of view            \n");
+        printf("Z .................. Zoom out (x2) from the center of the field of view         \n");
         printf("r .................. Toggle Region Of Interest mode                             \n");
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
@@ -63,6 +64,7 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
                                                           "a\n"
                                                           "z\n"
+                                                          "Z\n"
                                                          "r\n"
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
@@ -71,6 +73,7 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
                                                                   "Zoom at the center of the FOV\n"
+                                                                  "Zoom out (x2)\n"
                                                                  "Toggle Region Of Interest mode\n"
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
@@ -224,7 +227,7 @@ void crop_to_roi(LrdViewer *viewer) {
     log_trace("New target region: x: %d ; y: %d ; w: %d ; h: %d", new_x, new_y, new_width, new_height);
 
     new_x = new_x - new_x%arv_camera_get_x_offset_increment (viewer->camera, NULL);
-    new_y = new_y - new_x%arv_camera_get_y_offset_increment (viewer->camera, NULL);
+    new_y = new_y - new_y%arv_camera_get_y_offset_increment (viewer->camera, NULL);
     new_width = new_width - new_width%arv_camera_get_width_increment (viewer->camera, NULL);
     new_height = new_height - new_height%arv_camera_get_height_increment (viewer->camera, NULL);
 
@@ -259,6 +262,35 @@ void crop_to_roi(LrdViewer *viewer) {
     log_trace("====== CROP End");
 }
 
+// Largest region size (in binned pixels), whatever the current offsets. The Width/Height bounds can not be used:
+// depending on the camera, their maximum is either absolute or reduced by the current offset.
+static void get_max_region_size (LrdViewer *viewer, gint *max_w, gint *max_h) {
+    if (arv_camera_is_feature_available (viewer->camera, "WidthMax", NULL) &&
+        arv_camera_is_feature_available (viewer->camera, "HeightMax", NULL)) {
+        // Standard (SFNC) features, with the binning applied and the offsets ignored
+        *max_w = (gint) arv_camera_get_integer (viewer->camera, "WidthMax", NULL);
+        *max_h = (gint) arv_camera_get_integer (viewer->camera, "HeightMax", NULL);
+        log_trace("Max region size from WidthMax/HeightMax: %d x %d", *max_w, *max_h);
+    } else {
+        // The sensor size is in unbinned pixels
+        gint sensor_w, sensor_h, binning_x = 1, binning_y = 1;
+        arv_camera_get_sensor_size (viewer->camera, &sensor_w, &sensor_h, NULL);
+        if (arv_camera_is_binning_available (viewer->camera, NULL))
+            arv_camera_get_binning (viewer->camera, &binning_x, &binning_y, NULL);
+        *max_w = sensor_w / MAX (binning_x, 1);
+        *max_h = sensor_h / MAX (binning_y, 1);
+        log_trace("Max region size from the sensor size (%d x %d) and binning (%d x %d): %d x %d",
+                  sensor_w, sensor_h, binning_x, binning_y, *max_w, *max_h);
+    }
+    if (*max_w <= 0 || *max_h <= 0) {
+        // Neither is available: the Width/Height maximum may be too small (if reduced by the offsets), but it is
+        // always accepted by the camera
+        arv_camera_get_width_bounds (viewer->camera, NULL, max_w, NULL);
+        arv_camera_get_height_bounds (viewer->camera, NULL, max_h, NULL);
+        log_warning("Unknown sensor size: the largest field of view may not be reached (%d x %d).", *max_w, *max_h);
+    }
+}
+
 void see_whole_field_of_view(LrdViewer *viewer) {
     log_debug("Seeing all the field of view");
     log_trace("=== Start VIEWALL");
@@ -267,9 +299,15 @@ void see_whole_field_of_view(LrdViewer *viewer) {
     arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
     log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
 
-    // This ROI is the whole current field of view
-    int new_roi_x = old_x;
-    int new_roi_y = old_y;
+    gint min_x, min_y, max_w, max_h;
+    arv_camera_get_x_offset_bounds(viewer->camera, &min_x, NULL, NULL);
+    arv_camera_get_y_offset_bounds(viewer->camera, &min_y, NULL, NULL);
+    get_max_region_size (viewer, &max_w, &max_h);
+    log_trace("Max region: x: %d ; y: %d ; w: %d ; h: %d", min_x, min_y, max_w, max_h);
+
+    // This ROI is the whole current field of view (relative to the max region)
+    int new_roi_x = old_x - min_x;
+    int new_roi_y = old_y - min_y;
     int new_roi_w = old_w;
     int new_roi_h = old_h;
     log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
@@ -280,21 +318,7 @@ void see_whole_field_of_view(LrdViewer *viewer) {
         new_roi_w = viewer->roi_w;
         new_roi_h = viewer->roi_h;
     }
-    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
-
-    gint min_x, min_y, max_w, max_h;
-    arv_camera_get_x_offset_bounds(viewer->camera, &min_x, NULL, NULL);
-    arv_camera_get_y_offset_bounds(viewer->camera, &min_y, NULL, NULL);
-    arv_camera_get_width_bounds(viewer->camera, NULL, &max_w, NULL);
-    arv_camera_get_height_bounds (viewer->camera, NULL, &max_h, NULL);
-    /*
-     * FOR SOME CAMERAS (Arv-Fake par ex), arv_camera_get_width_bounds renvoie les bornes ABSOLUES
-     * POUR D'AUTRES (la manta par ex), arv_camera_get_width_bounds renvoie les bornes possibles sachant l'offset x.
-     * DANS LE DOUTE on blinde et on met un gros truc dans la max region. Au pire ca ne sera pas pris en compte.
-     */
-    max_w += old_x;
-    max_h += old_y;
-    log_trace("Max region: x: %d ; y: %d ; w: %d ; h: %d", min_x, min_y, max_w, max_h);
+    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", new_roi_x, new_roi_y, new_roi_w, new_roi_h);
 
     if (old_x == min_x && old_y == min_y && old_w == max_w && old_h == max_h) {
         log_debug("The old fov is already the max fov.");
@@ -363,6 +387,73 @@ void zoomin(LrdViewer *viewer) {
     log_trace("====== ZOOM End");
 }
 
+// Zooms out by 2, around the center of the current field of view. A ROI in use is kept where it was in the image.
+void zoomout(LrdViewer *viewer) {
+    log_debug("Unzooming");
+    log_trace("====== UNZOOM Start");
+
+    gint old_x, old_y, old_w, old_h;
+    arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
+    log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
+
+    int old_roi_x = viewer->roi_x;
+    int old_roi_y = viewer->roi_y;
+    int old_roi_w = viewer->roi_w;
+    int old_roi_h = viewer->roi_h;
+    log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", old_roi_x, old_roi_y, old_roi_w, old_roi_h);
+    gboolean using_ROI = viewer->show_roi;
+
+    see_whole_field_of_view(viewer);
+
+    gint full_x, full_y, full_w, full_h;
+    arv_camera_get_region (viewer->camera, &full_x, &full_y, &full_w, &full_h, NULL);
+    if (full_x == old_x && full_y == old_y && full_w == old_w && full_h == old_h) {
+        // see_whole_field_of_view did nothing (and left the ROI untouched)
+        log_debug("Already seeing the largest possible field of view.");
+        log_trace("====== UNZOOM End");
+        return;
+    }
+
+    // Twice the old field of view, with the same center (in the coordinates of the whole field of view)
+    viewer->roi_w = old_w*2;
+    viewer->roi_h = old_h*2;
+    viewer->roi_x = old_x - full_x - old_w/2;
+    viewer->roi_y = old_y - full_y - old_h/2;
+    // Near an edge, shift the window back inside instead of shrinking it
+    if (viewer->roi_x + viewer->roi_w > full_w)
+        viewer->roi_x = full_w - viewer->roi_w;
+    if (viewer->roi_x < 0)
+        viewer->roi_x = 0;
+    if (viewer->roi_y + viewer->roi_h > full_h)
+        viewer->roi_y = full_h - viewer->roi_h;
+    if (viewer->roi_y < 0)
+        viewer->roi_y = 0;
+    constrain_roi(viewer);
+    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+
+    // No need to crop (and restart the camera once more) if the window is the whole field of view
+    if (viewer->roi_x != 0 || viewer->roi_y != 0 || viewer->roi_w != full_w || viewer->roi_h != full_h) {
+        viewer->show_roi = gtk_true();
+        crop_to_roi(viewer);
+    }
+
+    viewer->show_roi = gtk_false();
+
+    if (using_ROI && is_roi_possible(viewer)) {
+        // Same place in the image: the old ROI was relative to the old region
+        gint new_x, new_y;
+        arv_camera_get_region (viewer->camera, &new_x, &new_y, NULL, NULL, NULL);
+        viewer->roi_x = old_roi_x + old_x - new_x;
+        viewer->roi_y = old_roi_y + old_y - new_y;
+        viewer->roi_w = old_roi_w;
+        viewer->roi_h = old_roi_h;
+        constrain_roi(viewer);
+        viewer->show_roi = gtk_true();
+    }
+
+    log_trace("====== UNZOOM End");
+}
+
 // TOGGLE GRID (g)
 void toggle_grid(LrdViewer *viewer) {
     if (viewer->grid_type == GRID_NOGRID) {
@@ -374,7 +465,7 @@ void toggle_grid(LrdViewer *viewer) {
     } else if (viewer->grid_type == GRID_VERTICAL) {
         viewer->grid_type = GRID_NOGRID;
     }
-    log_debug("Switched to a new grid : %d.", viewer->grid_type);
+    log_debug("Switched to a new grid : %d.", (int) viewer->grid_type);
 
     const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
     if (pixel_format != ARV_PIXEL_FORMAT_MONO_8) {
@@ -475,6 +566,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
             case GDK_KEY_z:
                 zoomin(viewer);
+                break;
+            case GDK_KEY_Z:
+                zoomout(viewer);
                 break;
 
             case GDK_KEY_Up:
@@ -581,6 +675,8 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
         }
     }
 
+    // Let the key also reach the focused widget (e.g. to type in an entry)
+    return FALSE;
 }
 
 // Key listener toggle

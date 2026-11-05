@@ -13,3 +13,6 @@ logs
 limrendir
 
 nogit_*
+limrendir_resources.c
+build/
+*.kate-swp

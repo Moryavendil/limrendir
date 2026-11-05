@@ -24,6 +24,16 @@ pkg_search_module(ARAVIS REQUIRED aravis-0.10 aravis-0.8)
 
 include_directories(.)
 
+# The interface description (limrendir.ui) is embedded in the executable, so that limrendir can be run from any folder
+pkg_get_variable(GLIB_COMPILE_RESOURCES gio-2.0 glib_compile_resources)
+set(LIMRENDIR_RESOURCES_C ${CMAKE_CURRENT_BINARY_DIR}/limrendir_resources.c)
+add_custom_command(
+        OUTPUT ${LIMRENDIR_RESOURCES_C}
+        COMMAND ${GLIB_COMPILE_RESOURCES} --target=${LIMRENDIR_RESOURCES_C} --generate-source
+                --sourcedir=${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.gresource.xml
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.gresource.xml ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.ui
+        COMMENT "Embedding limrendir.ui")
+
 add_executable( limrendir
         logroutines.h
         logroutines.c
@@ -37,7 +47,14 @@ add_executable( limrendir
         limrendir_fovsettings.c
         limrendir_modechange.c
 
-        main.c limrendir_acquisition_settings.c)
+        main.c limrendir_acquisition_settings.c
+
+        ${LIMRENDIR_RESOURCES_C})
+
+# Compiler warnings (GTK callbacks have fixed signatures, so unused parameters are normal)
+if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(limrendir PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif ()
 
 target_include_directories(limrendir PUBLIC ${GTK_INCLUDE_DIRS} ${GST_INCLUDE_DIRS} ${ARAVIS_INCLUDE_DIRS})
 target_link_directories(limrendir PUBLIC ${GSTLIBS_LIBRARY_DIRS} ${ARAVIS_LIBRARY_DIRS})

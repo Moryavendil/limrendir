@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <errno.h>
 #include <logroutines.h>
 
 char* log_filename = NULL;
@@ -71,29 +72,16 @@ char *log_category_string(LogLevel level) {
     return message_type_string;
 }
 
-char *terminal_formatted_log_category_string(LogLevel level) {
-    char *message_type_string = NULL;
+// Terminal color of each log category
+static const char *log_category_color(LogLevel level) {
     switch (level) {
-        case LOG_ERROR:
-            message_type_string = g_strdup_printf ("%s [%s] %s", tcRED, log_category_string(level), tcNRM);
-            break;
-        case LOG_WARNING:
-            message_type_string = g_strdup_printf ("%s [%s] %s", tcYEL, log_category_string(level), tcNRM);
-            break;
-        case LOG_INFO:
-            message_type_string = g_strdup_printf ("%s [%s] %s", tcGRN, log_category_string(level), tcNRM);
-            break;
-        case LOG_DEBUG:
-            message_type_string = g_strdup_printf ("%s [%s] %s", tcBLU, log_category_string(level), tcNRM);
-            break;
-        case LOG_TRACE:
-            message_type_string = g_strdup_printf ("%s [%s] %s", tcCYN, log_category_string(level), tcNRM);
-            break;
-        default:
-            message_type_string = log_category_string(level);
-            break;
+        case LOG_ERROR:   return tcRED;
+        case LOG_WARNING: return tcYEL;
+        case LOG_INFO:    return tcGRN;
+        case LOG_DEBUG:   return tcBLU;
+        case LOG_TRACE:   return tcCYN;
+        default:          return tcNRM;
     }
-    return message_type_string;
 }
 
 void log_write(LogLevel level, const char *fmt, ...)
@@ -106,27 +94,44 @@ void log_write(LogLevel level, const char *fmt, ...)
     va_end(args);
 
     if (level <= log_level) {
-        fprintf(stdout, "%s %s\n", terminal_formatted_log_category_string(level), buffer);
+        fprintf(stdout, "%s [%s] %s %s\n", log_category_color(level), log_category_string(level), tcNRM, buffer);
     }
-    char *date_string = g_date_time_format (g_date_time_new_now_local (), "%Y-%m-%d-%H:%M:%S");
-    fprintf(log_file, "%s - %s %s\n", date_string, log_category_string(level), buffer);
-    g_free(date_string);
+    if (log_file != NULL) {
+        GDateTime *now = g_date_time_new_now_local ();
+        char *date_string = g_date_time_format (now, "%Y-%m-%d-%H:%M:%S");
+        fprintf(log_file, "%s - %s %s\n", date_string, log_category_string(level), buffer);
+        g_free(date_string);
+        g_date_time_unref (now);
+    }
 }
 
 void log_initialize(LogLevel logging_level) {
     log_level = logging_level;
 
-    // Si le dossier existe deja, le mkdir echoue et osef.
-    mkdir("logs", S_IRWXU | S_IRWXG | S_IRWXO);
+    // Logs go to the user's state folder (usually ~/.local/state/limrendir/logs), whatever the current folder
+    char *log_dir = g_build_filename(g_get_user_state_dir(), "limrendir", "logs", NULL);
+    g_mkdir_with_parents(log_dir, 0755);
 
-    char const *core = "logs/logfile";
-    char const *date_string = g_date_time_format (g_date_time_new_now_local (), "%Y-%m-%d-%H:%M:%S");
-    char const *extension = ".log";
-    log_filename = g_strdup_printf("%s_%s%s", core, date_string, extension);
+    GDateTime *now = g_date_time_new_now_local ();
+    char *date_string = g_date_time_format (now, "%Y-%m-%d_%H-%M-%S");
+    g_date_time_unref (now);
+    char *log_basename = g_strdup_printf("logfile_%s.log", date_string);
+    g_free(date_string);
+    log_filename = g_build_filename(log_dir, log_basename, NULL);
+    g_free(log_basename);
+    g_free(log_dir);
     log_file = fopen(log_filename, "w");
-    setvbuf(log_file, NULL, _IOLBF, 0);
+    if (log_file != NULL) {
+        setvbuf(log_file, NULL, _IOLBF, 0);
+    } else {
+        int const saved_errno = errno;
+        // Logging goes on in the terminal only
+        log_warning("Could not create the log file '%s' (%s): logs are only shown here.", log_filename, g_strerror(saved_errno));
+    }
+    if (log_file != NULL)
+        log_debug("Logs for this session are saved in '%s'", log_filename);
 
-    log_trace("Log level: %d", log_level);
+    log_trace("Log level: %d", (int) log_level);
 }
 
 void log_terminate() {

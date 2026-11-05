@@ -1058,17 +1058,18 @@ Copyright (C)
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <property name="spacing">6</property>
-                    <property name="homogeneous">True</property>
+                    <property name="homogeneous">False</property>
                     <child>
                       <object class="GtkLabel" id="fps_label">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="margin-top">4</property>
                         <property name="margin-bottom">4</property>
+                        <property name="ellipsize">end</property>
                         <property name="label" translatable="yes">fps (MB/s)</property>
                       </object>
                       <packing>
-                        <property name="expand">False</property>
+                        <property name="expand">True</property>
                         <property name="fill">True</property>
                         <property name="position">0</property>
                       </packing>
@@ -1077,10 +1078,11 @@ Copyright (C)
                       <object class="GtkLabel" id="roi_label">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
+                        <property name="ellipsize">end</property>
                         <property name="label" translatable="yes">Region Of Interest</property>
                       </object>
                       <packing>
-                        <property name="expand">False</property>
+                        <property name="expand">True</property>
                         <property name="fill">True</property>
                         <property name="position">1</property>
                       </packing>
@@ -1091,10 +1093,11 @@ Copyright (C)
                         <property name="can-focus">False</property>
                         <property name="margin-top">4</property>
                         <property name="margin-bottom">4</property>
+                        <property name="ellipsize">end</property>
                         <property name="label" translatable="yes">Images / Errors</property>
                       </object>
                       <packing>
-                        <property name="expand">False</property>
+                        <property name="expand">True</property>
                         <property name="fill">True</property>
                         <property name="position">2</property>
                       </packing>
@@ -1338,6 +1341,7 @@ Copyright (C)
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
+            <property name="tooltip-text" translatable="yes">Start recording [SPACE]</property>
             <child>
               <object class="GtkImage">
                 <property name="visible">True</property>
