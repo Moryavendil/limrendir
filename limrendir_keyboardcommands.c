@@ -380,18 +380,55 @@ void zoomin(LrdViewer *viewer) {
     arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
     log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
 
+    // The ROI in use, in absolute (sensor) coordinates
+    gboolean const using_ROI = viewer->show_roi;
+    int const old_roi_x = old_x + viewer->roi_x;
+    int const old_roi_y = old_y + viewer->roi_y;
+    int const old_roi_w = viewer->roi_w;
+    int const old_roi_h = viewer->roi_h;
+    log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+
+    // The new field of view: the central half of the old one
     viewer->roi_x = old_w/4;
     viewer->roi_y = old_h/4;
     viewer->roi_w = old_w/2;
     viewer->roi_h = old_h/2;
 
-    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    log_trace("Zoom window: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
 
     viewer->show_roi = gtk_true();
 
     crop_to_roi(viewer);
 
     viewer->show_roi = gtk_false();
+
+    if (using_ROI && is_roi_possible(viewer)) {
+        // ROI mode stays: the new ROI is the part of the old ROI inside the new field of view,
+        // or the whole new field of view if they do not overlap
+        gint new_x, new_y, new_w, new_h;
+        arv_camera_get_region (viewer->camera, &new_x, &new_y, &new_w, &new_h, NULL);
+        int const left = MAX (old_roi_x, new_x);
+        int const top = MAX (old_roi_y, new_y);
+        int const right = MIN (old_roi_x + old_roi_w, new_x + new_w);
+        int const bottom = MIN (old_roi_y + old_roi_h, new_y + new_h);
+        if (right > left && bottom > top) {
+            viewer->roi_x = left - new_x;
+            viewer->roi_y = top - new_y;
+            viewer->roi_w = right - left;
+            viewer->roi_h = bottom - top;
+        } else {
+            log_debug("The old ROI is outside the new field of view: the ROI is the whole field of view.");
+            viewer->roi_x = 0;
+            viewer->roi_y = 0;
+            viewer->roi_w = new_w;
+            viewer->roi_h = new_h;
+        }
+        constrain_roi(viewer);
+        viewer->show_roi = gtk_true();
+        log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    }
+    overlay_queue_redraw(viewer);
+    update_status_bar_cb(viewer);
 
     log_trace("====== ZOOM End");
 }
