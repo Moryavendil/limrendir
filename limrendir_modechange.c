@@ -218,9 +218,9 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     GDateTime *date;
     char *date_string;
     int width, height;
-    const char *data;
+    g_autofree char *data = NULL;
     const char *pixel_format;
-    size_t size;
+    size_t size = 0;
     gint result;
 
     if (GST_IS_ELEMENT (viewer->videosink))
@@ -237,7 +237,11 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
 
     pixel_format = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
     arv_buffer_get_image_region (buffer, NULL, NULL, &width, &height);
-    data = arv_buffer_get_data (buffer, &size);
+    // Copy the raw data now: the stream may reuse the buffer memory while the dialog is open
+    if (ARV_IS_BUFFER (buffer)) {
+        const void *buffer_data = arv_buffer_get_data (buffer, &size);
+        data = g_memdup2 (buffer_data, size);
+    }
 
     date = g_date_time_new_now_local ();
     date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
