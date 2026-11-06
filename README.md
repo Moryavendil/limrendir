@@ -109,7 +109,6 @@ sudo update-grub
 
 See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html) for USB cameras and [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html) for Ethernet cameras.
 
-
 ## About the code
 
 Limrendir is written in C and based on Aravis (0.8/0.10), gstreamer (1.0) and GTK+ (3.0).
@@ -139,6 +138,7 @@ I am not a professional software developer so the code quality might not be perf
 
 * The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
 * Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
+* If another vendor's camera software is installed (e.g. Basler pylon, which sets `GENICAM_GENTL64_PATH`), aravis also sees USB3 cameras through that software's GenTL driver, so `arv-tool` lists them twice. Limrendir only lists the entry of aravis' own USB3 Vision driver; launch it with `--allow-duplicates` to also list the other one.
 
 
 ## Licence

@@ -152,6 +152,7 @@ static gboolean lrd_option_gevcapture_mode = FALSE;
 static char *lrd_option_dataset_name = NULL;
 static int lrd_option_log_level = LOG_INFO;
 static gboolean lrd_option_create_fake_camera = FALSE;
+static gboolean lrd_option_allow_duplicates = FALSE;
 static const GOptionEntry limrendir_option_entries[] =
         {
                 {
@@ -169,6 +170,12 @@ static const GOptionEntry limrendir_option_entries[] =
                 {
                         "fake-camera",                '\0',  0, G_OPTION_ARG_NONE,
                         &lrd_option_create_fake_camera, "Creates a fake camera", NULL
+                },
+                {
+                        "allow-duplicates",           '\0',  0, G_OPTION_ARG_NONE,
+                        &lrd_option_allow_duplicates,
+                        "Also list the duplicate GenTL entries",
+                        NULL
                 },
                 { NULL }
         };
@@ -300,7 +307,8 @@ int main (int argc, char **argv)
     limrendir_set_options(viewer,
                           lrd_option_gevcapture_mode,
                           lrd_option_dataset_name,
-                          lrd_option_create_fake_camera);
+                          lrd_option_create_fake_camera,
+                          lrd_option_allow_duplicates);
 
     log_trace("Application run");
     status = g_application_run (G_APPLICATION (viewer), argc, argv);

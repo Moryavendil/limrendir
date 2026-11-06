@@ -506,6 +506,40 @@ void switch_to_camera_list_cb (GtkToolButton *button, LrdViewer *viewer)
     select_mode (viewer, TRN_VIEWER_MODE_CAMERA_LIST);
 }
 
+// Returns TRUE if the device of this id is listed by the GenTL interface (a camera driver of another vendor,
+// e.g. Basler pylon, found through GENICAM_GENTL64_PATH) while Aravis' own USB3 Vision interface also lists a
+// camera with the same serial number. The same camera then appears twice, and only one entry can be opened.
+// 'uv_id' (if not NULL) is set to the id of the USB3 Vision entry.
+static gboolean is_gentl_duplicate_of_uv_camera (const char *device_id, const char **uv_id)
+{
+#ifdef ARV_GENTL_INTERFACE_H // The GenTL interface exists since Aravis 0.9
+    // Both interface lists were updated by arv_update_device_list
+    ArvInterface *gentl = arv_gentl_interface_get_instance ();
+    ArvInterface *uv = arv_uv_interface_get_instance ();
+    if (gentl == NULL || uv == NULL || device_id == NULL)
+        return FALSE;
+
+    for (unsigned int i = 0; i < arv_interface_get_n_devices (gentl); i++) {
+        if (g_strcmp0 (arv_interface_get_device_id (gentl, i), device_id) != 0)
+            continue;
+        if (g_strcmp0 (arv_interface_get_device_protocol (gentl, i), "USB3Vision") != 0)
+            return FALSE;
+        const char *serial = arv_interface_get_device_serial_nbr (gentl, i);
+        if (serial == NULL || serial[0] == '\0')
+            return FALSE;
+        for (unsigned int j = 0; j < arv_interface_get_n_devices (uv); j++) {
+            if (g_strcmp0 (arv_interface_get_device_serial_nbr (uv, j), serial) == 0) {
+                if (uv_id != NULL)
+                    *uv_id = arv_interface_get_device_id (uv, j);
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+#endif
+    return FALSE;
+}
+
 // update the camera list
 void update_device_list_cb (GtkToolButton *button, LrdViewer *viewer)
 {
@@ -525,6 +559,13 @@ void update_device_list_cb (GtkToolButton *button, LrdViewer *viewer)
     n_devices = arv_get_n_devices ();
     for (i = 0; i < n_devices; i++) {
         GString *protocol;
+        const char *uv_id = NULL;
+
+        if (!viewer->allow_duplicates && is_gentl_duplicate_of_uv_camera (arv_get_device_id (i), &uv_id)) {
+            log_debug ("Not listing '%s': it is the GenTL entry of the USB3 Vision camera '%s'"
+                       " (use --allow-duplicates to list it).", arv_get_device_id (i), uv_id);
+            continue;
+        }
 
         protocol = g_string_new (NULL);
         g_string_append_printf (protocol, "aravis-%s-symbolic", arv_get_device_protocol (i));

@@ -257,12 +257,14 @@ void
 limrendir_set_options (LrdViewer *viewer,
                        gboolean lrd_option_gevcapture_mode,
                        char *lrd_option_dataset_name,
-                       gboolean lrd_option_create_fake_camera) {
+                       gboolean lrd_option_create_fake_camera,
+                       gboolean lrd_option_allow_duplicates) {
     g_return_if_fail (viewer != NULL);
 
     viewer->gevcapture_mode = lrd_option_gevcapture_mode;
     viewer->dataset_name = g_strdup (lrd_option_dataset_name);
     create_fake_camera = lrd_option_create_fake_camera;
+    viewer->allow_duplicates = lrd_option_allow_duplicates;
 }
 
 // NOTIFICATION

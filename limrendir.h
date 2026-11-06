@@ -73,7 +73,8 @@ extern const int gc_option_y_offset_default;
 void                limrendir_set_options       (LrdViewer *viewer,
                                                  gboolean lrd_option_gevcapture_mode,
                                                  char *lrd_option_dataset_name,
-                                                 gboolean lrd_option_create_fake_camera);
+                                                 gboolean lrd_option_create_fake_camera,
+                                                 gboolean lrd_option_allow_duplicates);
 
 // GRID DRAWING
 typedef enum {
@@ -243,6 +244,8 @@ struct  _LrdViewer {
 
     // Arecorder settings
     gboolean gevcapture_mode;
+    // Show the GenTL entries of the cameras also seen by Aravis' own USB3 Vision interface
+    gboolean allow_duplicates;
     char *dataset_name;
 
     // GevCapture settings
