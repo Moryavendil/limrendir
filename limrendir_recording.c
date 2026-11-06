@@ -378,12 +378,14 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 //    gtk_file_filter_add_pattern(filter_all, "*.avi");
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
-    const gchar *mkv_filter_name = "MKV video (*.mkv)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, mkv_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.mkv");
-//    gtk_file_filter_add_pattern(filter_all, "*.mkv");
-//    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    const gchar *mkv_filter_name = "MKV video (lossless FFV1) (*.mkv)";
+    filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, mkv_filter_name);
+    gtk_file_filter_add_pattern(filter, "*.mkv");
+    gtk_file_filter_add_pattern(filter_all, "*.mkv");
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    }
 
     const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
     filter = gtk_file_filter_new();
@@ -746,11 +748,16 @@ typedef struct {
 
 static const Mp4EncodingSettings mp4_encoding_settings = {"I420", "superfast", 18};
 
-// MP4 videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down (or
-// sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
+// MP4 and MKV videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down
+// (or sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
 static const gint mp4_playback_fps = 30;
 
-// State of the current GStreamer (MP4/FLV) recording. Written by forward_buffer_to_gst (stream thread),
+// Whether the video file of this type is played at mp4_playback_fps, with the recording settings in its metadata
+static gboolean has_fixed_playback_rate (RecordingType record_type) {
+    return record_type == RECORDTYPE_MP4 || record_type == RECORDTYPE_MKV;
+}
+
+// State of the current GStreamer (MP4/MKV/FLV) recording. Written by forward_buffer_to_gst (stream thread),
 // read once the stream is stopped.
 static FrameNumbering gst_record_numbering;
 static guint64 gst_n_recorded_frames;
@@ -794,9 +801,9 @@ static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
     return g_string_free (text, FALSE);
 }
 
-// Writes the recording settings in the metadata (tags) of the MP4 file. Called when the recording starts, and
-// again when it stops ('final', with the frame counts): MP4 metadata are written at the end of the file.
-static void set_mp4_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
+// Writes the recording settings in the metadata (tags) of the MP4 / MKV file. Called when the recording starts, and
+// again when it stops ('final', with the frame counts): the muxers write the metadata at the end of the file.
+static void set_video_file_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
     double slowdown = gst_capture_frame_rate / mp4_playback_fps;
     g_autofree char *description = g_strdup_printf ("Recorded at %.2f fps, played at %d fps (%.2fx %s)",
                                                     gst_capture_frame_rate, mp4_playback_fps,
@@ -848,7 +855,7 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
         viewer->last_buffer = g_object_ref( arv_buffer );
 
         GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
-        if (viewer->record_type == RECORDTYPE_MP4) {
+        if (has_fixed_playback_rate (viewer->record_type)) {
             // Fixed playback frame rate: frame n is shown at (n - 1) / playback fps. The running number follows the
             // camera frame counter, so a frame lost during the capture leaves a gap instead of shifting the video.
             GST_BUFFER_PTS (gst_buffer) = gst_util_uint64_scale (running_number - 1, GST_SECOND, mp4_playback_fps);
@@ -982,7 +989,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
             gst_capture_frame_rate = get_actual_frame_rate (viewer);
-            set_mp4_tags (viewer, mp4mux, FALSE);
+            set_video_file_tags (viewer, mp4mux, FALSE);
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -1003,34 +1010,58 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             }
             break;
         }
-        case RECORDTYPE_MKV:
-            log_warning("mkv encoding is still experimental. This might not work");
+        case RECORDTYPE_MKV: {
             /*
-             * MKV RECORDING
+             * MKV RECORDING (lossless)
              *
              * Record pipeline:
-             *  tee -> videoconvert -> avenc_ffv1 -> matroskamux -> filesink
+             *  tee -> capsfilter (BGRx/BGRA) -> queue -> avenc_ffv1 -> matroskamux -> filesink
+             *
+             * The frames reach the tee in the display format (BGRx or BGRA), which FFV1 encodes losslessly as it is:
+             * there is deliberately no videoconvert, so that no lossy conversion can be inserted.
              */
-            videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
+            GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
+            GstCaps *raw_caps = gst_caps_from_string ("video/x-raw, format=(string){ BGRx, BGRA }");
+            g_object_set (G_OBJECT (capsfilter), "caps", raw_caps, NULL);
+            gst_caps_unref (raw_caps);
+            queue = gst_element_factory_make ("queue", NULL);
             avenc_ffv1 = gst_element_factory_make ("avenc_ffv1", NULL);
             matroskamux = gst_element_factory_make ("matroskamux", NULL);
-            GstPad *matroskamux_sink_pad = gst_element_request_pad_simple (matroskamux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
-            g_object_set (G_OBJECT(filesink), "location", filename, NULL);
-            g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
-
-            // Adding to the bin
-            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
-            // Linking the elements
-            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
-            if (GST_PAD_LINK_FAILED (link_success)) {
-                log_debug("Link from the tee to the videoconvert_rec for recording failed.");
+            if (avenc_ffv1 == NULL || matroskamux == NULL) {
+                log_error("MKV recording needs the GStreamer elements avenc_ffv1 (gst-libav) and matroskamux "
+                          "(gst-plugins-good), which are not installed.");
+                arv_viewer_show_notification (viewer, "Cannot record MKV videos",
+                                              "The GStreamer FFV1 encoder (gst-libav) or Matroska muxer is missing.");
+                g_clear_pointer (&capsfilter, gst_object_unref);
+                g_clear_pointer (&queue, gst_object_unref);
+                g_clear_pointer (&avenc_ffv1, gst_object_unref);
+                g_clear_pointer (&matroskamux, gst_object_unref);
+                g_clear_pointer (&filesink, gst_object_unref);
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
-            // Getting rid of the sink pad
-            gst_object_unref (GST_OBJECT (matroskamux_sink_pad));
+            // One encoding thread per core: a single thread cannot follow high frame rates
+            g_object_set (G_OBJECT (avenc_ffv1), "threads", 0, NULL);
+            gst_capture_frame_rate = get_actual_frame_rate (viewer);
+            set_video_file_tags (viewer, matroskamux, FALSE);
+            g_object_set (G_OBJECT(filesink), "location", filename, NULL);
+            g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
+            log_debug("MKV encoding: FFV1 (lossless), automatic number of threads");
+
+            // Adding to the bin
+            gst_bin_add_many (GST_BIN (viewer->pipeline), capsfilter, queue, avenc_ffv1, matroskamux, filesink, NULL);
+            // Linking the elements
+            link_success = link_pad_to_element (tee_record_src_pad, capsfilter);
+            if (GST_PAD_LINK_FAILED (link_success)) {
+                log_debug("Link from the tee to the capsfilter for recording failed.");
+                return FALSE;
+            }
+            if (!gst_element_link_many (capsfilter, queue, avenc_ffv1, matroskamux, filesink, NULL)) {
+                log_error("Could not build the MKV recording pipeline.");
+                return FALSE;
+            }
             break;
+        }
         case RECORDTYPE_AVI:
             log_warning("avi encoding is still experimental. This might not work");
             /*
@@ -1068,7 +1099,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     gst_object_unref (GST_OBJECT (tee_record_src_pad));
 
-    if (viewer->record_type == RECORDTYPE_MP4)
+    if (has_fixed_playback_rate (viewer->record_type))
         start_display_pipeline (viewer, caps_string, mp4_playback_fps, 1);
     else
         start_display_pipeline (viewer, caps_string, 0, 1);
@@ -1306,6 +1337,7 @@ gboolean start_recording (LrdViewer *viewer) {
                 break;
             case RECORDTYPE_FLV:
             case RECORDTYPE_MP4:
+            case RECORDTYPE_MKV:
                 stop_video(viewer);
                 successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
                 if (successful_launch) {
@@ -1390,11 +1422,11 @@ void stop_recording (LrdViewer *viewer) {
     // is still being written (record_buffer runs in that thread) when the files are closed below.
     g_clear_object (&viewer->stream);
 
-    // MP4: complete the metadata with the frame counts (the muxer writes them at the end of the file)
-    if (viewer->record_type == RECORDTYPE_MP4 && GST_IS_BIN (viewer->pipeline)) {
+    // MP4 / MKV: complete the metadata with the frame counts (the muxer writes them at the end of the file)
+    if (has_fixed_playback_rate (viewer->record_type) && GST_IS_BIN (viewer->pipeline)) {
         GstElement *muxer = gst_bin_get_by_interface (GST_BIN (viewer->pipeline), GST_TYPE_TAG_SETTER);
         if (muxer != NULL) {
-            set_mp4_tags (viewer, muxer, TRUE);
+            set_video_file_tags (viewer, muxer, TRUE);
             gst_object_unref (muxer);
         }
     }
