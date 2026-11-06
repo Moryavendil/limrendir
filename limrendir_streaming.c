@@ -7,6 +7,7 @@
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
+#include "limrendir_pixelformat.h"
 
 
 // These are straight-up copy-pasted form gevCapture
@@ -113,9 +114,20 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
     g_weak_ref_init (&release_data->stream, stream);
     release_data->arv_buffer = arv_buffer;
 
+    ArvPixelFormat const pixel_format = arv_buffer_get_image_pixel_format (arv_buffer);
     /* Gstreamer requires row stride to be a multiple of 4 */
-    arv_row_stride = width * ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (arv_buffer)) / 8;
-    if ((arv_row_stride & 0x3) != 0) {
+    arv_row_stride = width * ARV_PIXEL_FORMAT_BIT_PER_PIXEL (pixel_format) / 8;
+    guint const high_bits = mono_high_bit_depth (pixel_format);
+    if (high_bits > 0 && high_bits < 16) {
+        // Shown as 16-bit grey: unpacked and scaled to the 16-bit range (else Mono12 would look black)
+        int const gst_row_stride = (width * 2 + 3) & ~0x3;
+        size = (size_t) height * gst_row_stride;
+        data = g_malloc (size);
+        if (!mono_unpack_to_16 (pixel_format, buffer_data_uint8, buffer_size, width, height,
+                                data, gst_row_stride, TRUE))
+            memset (data, 0, size);
+        release_data->data = data;
+    } else if ((arv_row_stride & 0x3) != 0) {
         int gst_row_stride;
         int i;
 
@@ -526,7 +538,8 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 }
 
 // Text "(dark %) min – max (saturated %)" of the last frame, or NULL. In ROI mode, only the ROI is considered.
-// Values are bytes: meaningful for 8-bit pixel formats.
+// For mono formats of more than 8 bits (Mono10, Mono12, Mono12p...), values are pixel values (0 - 4095 for Mono12).
+// For the other formats, values are bytes: meaningful for 8-bit pixel formats.
 static char *saturation_text (LrdViewer *viewer)
 {
     if (viewer->last_buffer == NULL)
@@ -537,42 +550,61 @@ static char *saturation_text (LrdViewer *viewer)
     if (data == NULL || buffer_size == 0)
         return NULL;
 
-    // The zone considered (in bytes): the whole buffer, or the rows / columns of the ROI
     gint width = 0, height = 0;
     arv_buffer_get_image_region (viewer->last_buffer, NULL, NULL, &width, &height);
-    size_t const bytes_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (viewer->last_buffer)) / 8;
-    size_t row_bytes = buffer_size, stride = buffer_size, first_row = 0, n_rows = 1, first_byte = 0;
+    ArvPixelFormat const pixel_format = arv_buffer_get_image_pixel_format (viewer->last_buffer);
+    guint const high_bits = mono_high_bit_depth (pixel_format);
+
+    // The values considered: bytes (8-bit formats) or 16-bit pixel values (high bit depth mono formats)
+    uint16_t *values16 = NULL;
+    size_t bytes_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (pixel_format) / 8;
+    guint value_saturated = 255;
+    if (high_bits > 0 && width > 0 && height > 0) {
+        values16 = g_malloc ((size_t) width * height * sizeof (uint16_t));
+        if (!mono_unpack_to_16 (pixel_format, data, buffer_size, width, height, values16,
+                                (size_t) width * sizeof (uint16_t), FALSE)) {
+            g_free (values16);
+            return NULL;
+        }
+        bytes_per_pixel = 1; // One value per pixel
+        value_saturated = (1u << high_bits) - 1;
+    }
+
+    // The zone considered (in values): the whole buffer, or the rows / columns of the ROI
+    size_t const n_total = values16 != NULL ? (size_t) width * height : buffer_size;
+    size_t row_values = n_total, stride = n_total, first_row = 0, n_rows = 1, first_value = 0;
     if (viewer->show_roi && bytes_per_pixel > 0 && width > 0 && height > 0 &&
-        (size_t) width * height * bytes_per_pixel <= buffer_size) {
+        (size_t) width * height * bytes_per_pixel <= n_total) {
         int const x = CLAMP (viewer->roi_x, 0, width - 1);
         int const y = CLAMP (viewer->roi_y, 0, height - 1);
         int const w = CLAMP (viewer->roi_w, 1, width - x);
         int const h = CLAMP (viewer->roi_h, 1, height - y);
-        row_bytes = (size_t) w * bytes_per_pixel;
+        row_values = (size_t) w * bytes_per_pixel;
         stride = (size_t) width * bytes_per_pixel;
         first_row = y;
         n_rows = h;
-        first_byte = (size_t) x * bytes_per_pixel;
+        first_value = (size_t) x * bytes_per_pixel;
     }
 
-    uint8_t value_min = 255, value_max = 0;
+    guint value_min = value_saturated, value_max = 0;
     size_t n_dark = 0, n_saturated = 0;
     for (size_t row = first_row; row < first_row + n_rows; row++) {
-        const uint8_t *line = data + row * stride + first_byte;
-        for (size_t i = 0; i < row_bytes; i++) {
-            uint8_t const value = line[i];
+        size_t const start = row * stride + first_value;
+        for (size_t i = 0; i < row_values; i++) {
+            guint const value = values16 != NULL ? values16[start + i] : data[start + i];
             if (value > value_max)
                 value_max = value;
             if (value < value_min)
                 value_min = value;
             if (value == 0)
                 n_dark++;
-            else if (value == 255)
+            else if (value >= value_saturated)
                 n_saturated++;
         }
     }
-    double const n_values = (double) row_bytes * n_rows;
-    return g_strdup_printf ("(%.2f %%) %d – %d (%.2f %%)", 100 * n_dark / n_values, value_min, value_max,
+    g_free (values16);
+    double const n_values = (double) row_values * n_rows;
+    return g_strdup_printf ("(%.2f %%) %u – %u (%.2f %%)", 100 * n_dark / n_values, value_min, value_max,
                             100 * n_saturated / n_values);
 }
 
