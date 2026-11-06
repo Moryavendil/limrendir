@@ -511,10 +511,11 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 {
     if (type == ARV_STREAM_CALLBACK_TYPE_INIT) {
 
-        if (!arv_make_thread_high_priority (-10)) {
+        // Live video: slightly above normal (less important than recordings, cf stream_record_cb)
+        if (!arv_make_thread_high_priority (-5)) {
             log_warning ("Failed to make stream thread high priority");
         } else {
-            log_trace ("Made stream thread high priority");
+            log_trace ("Made stream thread high priority (nice -5)");
         }
 //        if (!arv_make_thread_realtime (10)) {
 //            log_warning ("Failed to make stream thread realtime. Try running as administrator.");
