@@ -14,8 +14,13 @@ static gboolean get_layout (ArvPixelFormat format, guint *bits, Packing *packing
         case ARV_PIXEL_FORMAT_MONO_12:         *bits = 12; *packing = PACKING_NONE; return TRUE;
         case ARV_PIXEL_FORMAT_MONO_14:         *bits = 14; *packing = PACKING_NONE; return TRUE;
         case ARV_PIXEL_FORMAT_MONO_16:         *bits = 16; *packing = PACKING_NONE; return TRUE;
+        // Mono10p and Mono12p are not defined in Aravis 0.8
+#ifdef ARV_PIXEL_FORMAT_MONO_10P
         case ARV_PIXEL_FORMAT_MONO_10P:        *bits = 10; *packing = PACKING_LSB; return TRUE;
+#endif
+#ifdef ARV_PIXEL_FORMAT_MONO_12P
         case ARV_PIXEL_FORMAT_MONO_12P:        *bits = 12; *packing = PACKING_LSB; return TRUE;
+#endif
         case ARV_PIXEL_FORMAT_MONO_10_PACKED:  *bits = 10; *packing = PACKING_GIGE_LEGACY; return TRUE;
         case ARV_PIXEL_FORMAT_MONO_12_PACKED:  *bits = 12; *packing = PACKING_GIGE_LEGACY; return TRUE;
         default: return FALSE;
