@@ -38,91 +38,6 @@ void remove_widget (GtkWidget *widget, gpointer data)
     g_object_unref (widget);
 }
 
-// GRID DRAWING
-gboolean draw_horizontal_line(int linenumber, uint8_t * buffer_data, int width, int height) {
-    if ((linenumber < 0) || (linenumber >= height)) {
-        return FALSE;
-    }
-    for (int i = 0 ; i < width ; i+=1) {
-        buffer_data[linenumber*width + i] = 0;
-    }
-    return TRUE;
-}
-
-gboolean draw_vertical_line(int linenumber, uint8_t * buffer_data, int width, int height) {
-    if ((linenumber < 0) || (linenumber >= width)) {
-        return FALSE;
-    }
-    for (int i = 0 ; i < height ; i+=1) {
-        buffer_data[i*width + linenumber] = 0;
-    }
-    return TRUE;
-}
-
-void draw_grid_on_buffer(uint8_t *buffer_data, int width, int height, GridType type_of_grid) {
-    // operations
-    int midline;
-    int n_line;
-    int lines_spacing = 100;
-
-    // HORIZONTAL
-    if ((type_of_grid == GRID_HORIZONTAL) || (type_of_grid == GRID_BOTH)) {
-        midline = height / 2;
-        n_line = 0;
-        while (draw_horizontal_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line += 1;
-        }
-        n_line = -1;
-        while (draw_horizontal_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line -= 1;
-        }
-    }
-
-    // VERTICAL
-    if ((type_of_grid == GRID_VERTICAL) || (type_of_grid == GRID_BOTH)) {
-        midline = width / 2;
-        n_line = 0;
-        while (draw_vertical_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line += 1;
-        }
-        n_line = -1;
-        while (draw_vertical_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line -= 1;
-        }
-    }
-}
-
-// ROI DRAWING
-void draw_roi_buffer(uint8_t *buffer_data, int width, int height, LrdViewer *viewer) {
-
-    if (viewer->show_roi) {
-        constrain_roi_to_field_of_view(viewer, width, height);
-        uint8_t attenuation_factor = 3;
-
-        // Lines over
-        for (int i = 0 ; i < width * viewer->roi_y ; i+=1) {
-            buffer_data[i] = buffer_data[i] / attenuation_factor;
-        }
-
-        // Lines in between
-        for (int i_hline = viewer->roi_y ; i_hline < viewer->roi_y + viewer->roi_h ; i_hline+=1) {
-            for (int i_vline = 0 ; i_vline < viewer->roi_x ; i_vline += 1) {
-                buffer_data[i_hline*width + i_vline] = buffer_data[i_hline*width + i_vline] / attenuation_factor;
-            }
-            for (int i_vline = viewer->roi_x + viewer->roi_w ; i_vline < width ; i_vline += 1) {
-                buffer_data[i_hline*width + i_vline] = buffer_data[i_hline*width + i_vline] / attenuation_factor;
-            }
-        }
-
-        // Lines under
-        for (int i = width * (viewer->roi_y + viewer->roi_h) ; i < width * height ; i+=1) {
-            buffer_data[i] = buffer_data[i] / attenuation_factor;
-        }
-    }
-
-}
-
-
 // SHOW AN ARAVIS BUFFER VIA GSTREAMER
 typedef struct {
     GWeakRef stream;
@@ -173,9 +88,6 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
 
     buffer_data_uint8 = (uint8_t *) arv_buffer_get_data (arv_buffer, &buffer_size);
 
-    // DRAWING
-    draw_grid_on_buffer(buffer_data_uint8, width, height, viewer->grid_type);
-    draw_roi_buffer(buffer_data_uint8, width, height, viewer);
 
 //    // GET MIN MAX
 //    uint8_t valbuffermin = 255;
@@ -441,6 +353,8 @@ void add_display_sink (LrdViewer *viewer)
     viewer->videosink = gst_element_factory_make ("gtksink", NULL);
 
     g_object_get (viewer->videosink, "widget", &video_widget, NULL);
+    // The grid and the ROI are drawn over the video, not in the images
+    overlay_attach (viewer, video_widget);
     gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
     gtk_widget_show (video_widget);
     g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
@@ -461,6 +375,9 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
     log_trace("    Setting source caps.");
     GstCaps *caps = gst_caps_from_string (caps_string);
     arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+    // The overlay is drawn in the coordinates of these images
+    viewer->display_image_width = width;
+    viewer->display_image_height = height;
     gst_caps_set_simple (caps,
                          "width", G_TYPE_INT, width,
                          "height", G_TYPE_INT, height,
@@ -551,6 +468,7 @@ void stop_video (LrdViewer *viewer)
         arv_camera_stop_acquisition (viewer->camera, NULL);
 
 //    log_trace("    Removing widgets for each videoframe.");
+    overlay_detach (viewer);
     gtk_container_foreach (GTK_CONTAINER (viewer->video_frame), remove_widget, viewer->video_frame);
 
 //    log_trace("    Resetting events.");

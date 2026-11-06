@@ -690,18 +690,20 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         if (viewer->show_roi) {
             int width, height;
             arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
+            // Bytes per pixel (the ROI is only possible with a whole number of them, cf is_roi_possible)
+            size_t const bpp = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer)) / 8;
+            if (size == bpp * viewer->roi_w * viewer->roi_h) {
                 // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
             } else if (width == viewer->roi_w) {
                 // The roi is used to constrain only in y
-                size_t offset = viewer->roi_y * width;
-                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
+                size_t offset = bpp * viewer->roi_y * width;
+                fwrite(image_data + offset, 1, bpp * viewer->roi_w * viewer->roi_h, imageFile);
             } else {
                 // general case
                 for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = i_line * width + viewer->roi_x;
-                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
+                    size_t offset = bpp * ((size_t) i_line * width + viewer->roi_x);
+                    fwrite(image_data + offset, 1, bpp * viewer->roi_w, imageFile);
                 }
             }
         } else {
@@ -1283,18 +1285,20 @@ static gboolean bourrin_recording(void *data)
         if (viewer->show_roi) {
             int width, height;
             arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
+            // Bytes per pixel (the ROI is only possible with a whole number of them, cf is_roi_possible)
+            size_t const bpp = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer)) / 8;
+            if (size == bpp * viewer->roi_w * viewer->roi_h) {
                 // The roi is useless
                 fwrite(image_data, 1, size, imageFile);
             } else if (width == viewer->roi_w) {
                 // The roi is used to constrain only in y
-                size_t offset = viewer->roi_y * width;
-                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
+                size_t offset = bpp * viewer->roi_y * width;
+                fwrite(image_data + offset, 1, bpp * viewer->roi_w * viewer->roi_h, imageFile);
             } else {
                 // general case
                 for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = i_line * width + viewer->roi_x;
-                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
+                    size_t offset = bpp * ((size_t) i_line * width + viewer->roi_x);
+                    fwrite(image_data + offset, 1, bpp * viewer->roi_w, imageFile);
                 }
             }
         } else {

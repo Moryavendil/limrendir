@@ -130,7 +130,7 @@ void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer)
 }
 
 // Image transforms
-void update_transform (LrdViewer *viewer)
+gint get_videoflip_method (LrdViewer *viewer)
 {
     static const gint methods[4][4] = {
             {0, 1, 2, 3},
@@ -139,8 +139,13 @@ void update_transform (LrdViewer *viewer)
             {2, 3, 0, 1}
     };
     int index = (viewer->flip_horizontal ? 1 : 0) + (viewer->flip_vertical ? 2 : 0);
+    return methods[index][viewer->rotation % 4];
+}
 
-    g_object_set (viewer->transform, "method", methods[index][viewer->rotation % 4], NULL);
+void update_transform (LrdViewer *viewer)
+{
+    g_object_set (viewer->transform, "method", get_videoflip_method (viewer), NULL);
+    overlay_queue_redraw (viewer);
 }
 
 void rotate_cw_cb (GtkButton *button, LrdViewer *viewer)

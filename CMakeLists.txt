@@ -48,6 +48,7 @@ add_executable( limrendir
         limrendir_modechange.c
         limrendir_settings.h
         limrendir_settings.c
+        limrendir_overlay.c
 
         main.c limrendir_acquisition_settings.c
 

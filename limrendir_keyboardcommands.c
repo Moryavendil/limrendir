@@ -29,6 +29,7 @@ void help(LrdViewer *viewer) {
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
         printf("arrows (keypad) .... Move ROI as a whole                                        \n");
+        printf("mouse drag ......... Draw a new ROI (in ROI mode)                               \n");
         printf("c .................. Crop to the Region Of Interest                             \n");
     }
         printf("%s*** Video Acquisition ***%s                                                   \n", tcMAG, tcNRM);
@@ -69,6 +70,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
                                                          "↑←↓→ \t(keypad)\n"
+                                                         "mouse drag\n"
                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
@@ -78,6 +80,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
                                                                  "Move ROI as a whole\n"
+                                                                 "Draw a new ROI (in ROI mode)\n"
                                                                  "Crop to the Region Of Interest");
     // VIDEO ACQU
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_4), "<b>Video Acquisition</b>\n"
@@ -87,13 +90,15 @@ void setup_help_popover (LrdViewer *viewer) {
 }
 
 // ROI MANIPULATION
+// The ROI is drawn as an overlay, whatever the pixel format. But GCV recordings crop the images to the ROI byte by
+// byte, which needs a whole number of bytes per pixel (not possible with packed formats such as Mono12Packed).
 gboolean is_roi_possible(LrdViewer *viewer) {
     const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (pixel_format == ARV_PIXEL_FORMAT_MONO_8) {
+    if (ARV_PIXEL_FORMAT_BIT_PER_PIXEL (pixel_format) % 8 == 0) {
         return TRUE;
     } else {
-        log_warning("This pixel format (%s) do not allow for ROI utilization (yet!). Use Mono8 instead.", caps_string);
+        log_warning("The ROI cannot be used with a packed pixel format (%s).",
+                    arv_camera_get_pixel_format_as_string (viewer->camera, NULL));
         return FALSE;
     }
 }
@@ -148,6 +153,7 @@ void toggle_roi(LrdViewer *viewer) {
         viewer->show_roi = !(viewer->show_roi);
     constrain_roi(viewer);
     update_status_bar_cb(viewer);
+    overlay_queue_redraw(viewer);
 }
 
 // ROI MOVEMENT
@@ -167,6 +173,7 @@ void move_roi_whole(LrdViewer *viewer, enum roiMovementDirection direction, enum
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -183,6 +190,7 @@ void move_roi_lower_right_corner(LrdViewer *viewer, enum roiMovementDirection di
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -203,6 +211,7 @@ void move_roi_upper_left_corner(LrdViewer *viewer, enum roiMovementDirection dir
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -466,12 +475,7 @@ void toggle_grid(LrdViewer *viewer) {
         viewer->grid_type = GRID_NOGRID;
     }
     log_debug("Switched to a new grid : %d.", (int) viewer->grid_type);
-
-    const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    if (pixel_format != ARV_PIXEL_FORMAT_MONO_8) {
-        const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-        printf("This pixel format (%s) do not allow for grid utilization (yet!). Use Mono8 instead.", caps_string);
-    }
+    overlay_queue_redraw(viewer);
 }
 
 // CHANGE EXPOSURE (+/-/Pg Up/Pg Down)
