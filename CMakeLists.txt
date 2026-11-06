@@ -46,6 +46,8 @@ add_executable( limrendir
         limrendir_streaming.c
         limrendir_fovsettings.c
         limrendir_modechange.c
+        limrendir_settings.h
+        limrendir_settings.c
 
         main.c limrendir_acquisition_settings.c
 

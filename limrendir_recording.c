@@ -7,6 +7,7 @@
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
+#include <limrendir_settings.h>
 
 
 //// These are straight-up copy-pasted form gevCapture
@@ -328,14 +329,17 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
 
-    // Si le dossier existe deja, le mkdir echoue et osef.
-    char* lrd_videos_path = NULL;
-    if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
-        lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
-    } else {
-        lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
+    // Default folder: the one where the last video was saved, else Limrendir-videos in the user's videos folder
+    char* lrd_videos_path = settings_get_directory(SETTINGS_GROUP_VIDEO);
+    if (lrd_videos_path == NULL) {
+        if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
+            lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
+        } else {
+            lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
+        }
+        // Si le dossier existe deja, le mkdir echoue et osef.
+        mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
     }
-    mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
 
     log_debug("The saving dir is %s", lrd_videos_path);
 
@@ -455,6 +459,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
             log_info("Unsupported video extension chosen : '%s'. Aborting recording.", extension);
             chosen_filetype = RECORDTYPE_NONE;
         }
+        if (chosen_filetype != RECORDTYPE_NONE)
+            settings_set_directory_of(SETTINGS_GROUP_VIDEO, filename);
         gtk_widget_destroy(dialog);
         g_free(filename); // 'extension' pointed into it
         return chosen_filetype;

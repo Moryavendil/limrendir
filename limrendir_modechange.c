@@ -3,6 +3,7 @@
 #include <arv.h>
 #include <limrendir.h>
 #include <logroutines.h>
+#include <limrendir_settings.h>
 
 // USB memory check
 
@@ -255,7 +256,12 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     g_free (date_string);
     g_date_time_unref (date);
 
-    path = g_build_filename (g_get_user_special_dir (G_USER_DIRECTORY_PICTURES), filename, NULL);
+    // Default folder: the one where the last snapshot was saved, else the user's pictures folder
+    g_autofree char *snapshot_dir = settings_get_directory (SETTINGS_GROUP_SNAPSHOT);
+    if (snapshot_dir == NULL)
+        snapshot_dir = g_strdup (g_get_user_special_dir (G_USER_DIRECTORY_PICTURES) != NULL
+                                 ? g_get_user_special_dir (G_USER_DIRECTORY_PICTURES) : g_get_home_dir ());
+    path = g_build_filename (snapshot_dir, filename, NULL);
 
     dialog = gtk_file_chooser_dialog_new ("Save Snapshot", GTK_WINDOW (viewer->main_window),
                                           GTK_FILE_CHOOSER_ACTION_SAVE,
@@ -315,12 +321,15 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
             success = _save_gst_sample_to_file (sample, filename, "image/jpeg", NULL);
         } else if (ARV_IS_BUFFER (buffer)) {
             success = g_file_set_contents (filename, data, size, &error);
-            g_free (filename);
         }
 
-        if (!success)
+        if (success) {
+            log_debug ("Snapshot saved to '%s'", filename);
+            settings_set_directory_of (SETTINGS_GROUP_SNAPSHOT, filename);
+        } else
             arv_viewer_show_notification (viewer, "Failed to save image to file",
                                           error != NULL ? error->message : NULL);
+        g_free (filename);
     }
 
     gtk_widget_destroy (dialog);
