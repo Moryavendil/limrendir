@@ -594,6 +594,13 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 
     if (arv_camera_is_uv_device (viewer->camera)) {
         arv_camera_uv_set_usb_mode (viewer->camera, viewer->usb_mode);
+        // ARV_UV_USB_MODE_DEFAULT is async since Aravis 0.8.28, but sync before
+        if (viewer->usb_mode == ARV_UV_USB_MODE_SYNC) {
+            log_info("The USB device I/O mode is synchronous: the asynchronous mode usually loses fewer frames "
+                     "(option --usb-mode=async).");
+        } else {
+            log_debug("USB device I/O mode: asynchronous");
+        }
         check_usbfs_memory ();
     }
 

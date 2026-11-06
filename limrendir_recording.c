@@ -666,6 +666,7 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
             log_trace ("Made stream thread high priority (nice -19)");
         } else if (arv_make_thread_high_priority (-10)) {
             log_debug ("Stream thread priority: nice -19 refused, nice -10 used.");
+            log_info ("The recording stream thread could get a higher priority with higher privileges (e.g. running as administrator).");
         } else {
             log_warning ("Failed to make stream thread high priority");
         }
