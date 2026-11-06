@@ -2,6 +2,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/video/videooverlay.h>
+#include <string.h>
 #include <arv.h>
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
@@ -292,13 +293,24 @@ gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream)
     return FALSE;
 }
 
-// Gives n new buffers, each holding one full frame, to the stream
+// Gives n new buffers, each holding one full frame, to the stream.
+// The memory of the buffers is written once here: the system only really allocates memory the first time it is
+// written, and doing it while the stream thread receives a frame slows it down so much that frames are lost
+// (timeouts / missing packets), until every buffer has been used once (seconds with large frames and many buffers).
 void push_new_buffers (LrdViewer *viewer, unsigned n)
 {
     unsigned payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n; i++)
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    gint64 const start_us = g_get_monotonic_time ();
+    for (unsigned i = 0; i < n; i++) {
+        ArvBuffer *buffer = arv_buffer_new (payload, NULL);
+        // (the size given by arv_buffer_get_data is the received size, 0 for a new buffer: use the payload)
+        void *data = (void *) arv_buffer_get_data (buffer, NULL);
+        if (data != NULL)
+            memset (data, 0, payload);
+        arv_stream_push_buffer (viewer->stream, buffer);
+    }
     viewer->n_stream_buffers += n;
+    log_debug ("%u buffers of %u bytes allocated in %.0f ms", n, payload, (g_get_monotonic_time () - start_us) / 1000.0);
 }
 
 // DISPLAY PIPELINE (shared by the live video and the recordings)
