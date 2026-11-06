@@ -501,8 +501,8 @@ activate (GApplication *application)
 
     if (arv_get_n_devices () == 0) {
         log_warning("No camera found.");
-        log_info("If a USB camera is connected, it might require sudo privileges to be seen.");
         log_info("If you have no camera available, you can use a fake one by running arv-fake-gv-camera.");
+        log_info("If a USB camera is connected, see README.md - Troubleshooting - Camera not listed.");
     }
 
     // Apply gevcapture options

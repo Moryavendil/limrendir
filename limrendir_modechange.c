@@ -32,12 +32,13 @@ static void check_usbfs_memory (void)
     }
 
     log_warning("The USB memory limit is low (usbfs_memory_mb = %" G_GUINT64_FORMAT " MB): "
-                "USB3 cameras may lose frames at high frame rates.", usbfs_memory_mb);
-    log_info("To raise USB memory limit until next reboot: "
-                "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
-    log_info("To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
-                "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
-                USBFS_MEMORY_MB_RECOMMENDED);
+                "USB3 cameras may lose frames.", usbfs_memory_mb);
+    log_info("To raise USB memory limit, see README.md - Troubleshooting - Missing frames.");
+    // log_info("To raise USB memory limit until next reboot: "
+                // "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
+    // log_info("To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
+                // "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
+                // USBFS_MEMORY_MB_RECOMMENDED);
 }
 
 // MODE CHANGE
