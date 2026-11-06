@@ -26,6 +26,7 @@ void help(LrdViewer *viewer) {
         printf("z .................. Zoom in (x2) to the center of the field of view            \n");
         printf("Z .................. Zoom out (x2) from the center of the field of view         \n");
         printf("r .................. Toggle Region Of Interest mode                             \n");
+        printf("Ctrl+a ............. Fit the ROI to the field of view                           \n");
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
         printf("arrows (keypad) .... Move ROI as a whole                                        \n");
@@ -67,6 +68,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                           "z\n"
                                                           "Z\n"
                                                          "r\n"
+                                                         "Ctrl+a\n"
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
                                                          "↑←↓→ \t(keypad)\n"
@@ -77,6 +79,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                                   "Zoom in (x2)\n"
                                                                   "Zoom out (x2)\n"
                                                                  "Toggle Region Of Interest mode\n"
+                                                                 "Fit the ROI to the field of view\n"
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
                                                                  "Move ROI as a whole\n"
@@ -151,6 +154,22 @@ void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height) {
 void toggle_roi(LrdViewer *viewer) {
     if (is_roi_possible(viewer))
         viewer->show_roi = !(viewer->show_roi);
+    constrain_roi(viewer);
+    update_status_bar_cb(viewer);
+    overlay_queue_redraw(viewer);
+}
+
+// FIT THE ROI TO THE FIELD OF VIEW (Ctrl+a), like "select all"
+void roi_select_all(LrdViewer *viewer) {
+    if (!is_roi_possible(viewer))
+        return;
+    gint width, height;
+    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+    viewer->roi_x = 0;
+    viewer->roi_y = 0;
+    viewer->roi_w = width;
+    viewer->roi_h = height;
+    viewer->show_roi = TRUE;
     constrain_roi(viewer);
     update_status_bar_cb(viewer);
     overlay_queue_redraw(viewer);
@@ -669,7 +688,10 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
 
             case GDK_KEY_a:
-                see_whole_field_of_view(viewer);
+                if (event->state & GDK_CONTROL_MASK)
+                    roi_select_all(viewer);
+                else
+                    see_whole_field_of_view(viewer);
                 break;
             case GDK_KEY_c:
                 crop_to_roi(viewer);
