@@ -1613,9 +1613,13 @@ gboolean is_record_button_active(LrdViewer *viewer) {
 
 void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer)
 {
+    gboolean const recording = gtk_toggle_button_get_active (toggle);
+
     gtk_widget_set_tooltip_text (GTK_WIDGET (toggle),
-                                 gtk_toggle_button_get_active (toggle) ?
-                                 "Stop recording [SPACE]" : "Start recording [SPACE]");
+                                 recording ? "Stop recording [SPACE]" : "Start recording [SPACE]");
+    gtk_image_set_from_icon_name (GTK_IMAGE (gtk_bin_get_child (GTK_BIN (toggle))),
+                                  recording ? "media-playback-stop-symbolic" : "media-record-symbolic",
+                                  GTK_ICON_SIZE_BUTTON);
 }
 
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer)

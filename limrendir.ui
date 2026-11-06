@@ -1327,7 +1327,7 @@ Copyright (C)
               <object class="GtkImage">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="icon-name">applications-engineering-symbolic</property>
+                <property name="icon-name">applications-system-symbolic</property>
               </object>
             </child>
           </object>
@@ -1346,7 +1346,7 @@ Copyright (C)
               <object class="GtkImage">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="icon-name">camera-web-symbolic</property>
+                <property name="icon-name">media-record-symbolic</property>
               </object>
             </child>
           </object>
@@ -1365,7 +1365,7 @@ Copyright (C)
               <object class="GtkImage">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="icon-name">applications-system-symbolic</property>
+                <property name="icon-name">camera-web-symbolic</property>
               </object>
             </child>
           </object>
