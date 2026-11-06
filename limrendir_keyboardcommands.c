@@ -448,16 +448,25 @@ void zoomout(LrdViewer *viewer) {
 
     viewer->show_roi = gtk_false();
 
-    if (using_ROI && is_roi_possible(viewer)) {
-        // Same place in the image: the old ROI was relative to the old region
+    if (is_roi_possible(viewer)) {
+        // Same place in the image (the old ROI was relative to the old region). Without a ROI, like 'a', the ROI is
+        // the old field of view.
         gint new_x, new_y;
         arv_camera_get_region (viewer->camera, &new_x, &new_y, NULL, NULL, NULL);
-        viewer->roi_x = old_roi_x + old_x - new_x;
-        viewer->roi_y = old_roi_y + old_y - new_y;
-        viewer->roi_w = old_roi_w;
-        viewer->roi_h = old_roi_h;
+        if (using_ROI) {
+            viewer->roi_x = old_roi_x + old_x - new_x;
+            viewer->roi_y = old_roi_y + old_y - new_y;
+            viewer->roi_w = old_roi_w;
+            viewer->roi_h = old_roi_h;
+        } else {
+            viewer->roi_x = old_x - new_x;
+            viewer->roi_y = old_y - new_y;
+            viewer->roi_w = old_w;
+            viewer->roi_h = old_h;
+        }
         constrain_roi(viewer);
         viewer->show_roi = gtk_true();
+        log_trace("Final ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
     }
 
     log_trace("====== UNZOOM End");
