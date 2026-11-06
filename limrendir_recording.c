@@ -284,6 +284,30 @@ char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
     return filename;
 }
 
+// Name of a video type in the settings ("gcv", "mp4" or "mkv"), NULL for the types that cannot be chosen
+static const char *video_type_setting_name(RecordingType recording_type) {
+    switch (recording_type) {
+        case RECORDTYPE_GEVCAPTURE: return "gcv";
+        case RECORDTYPE_MP4: return "mp4";
+        case RECORDTYPE_MKV: return "mkv";
+        default: return NULL;
+    }
+}
+
+// The video type remembered in the settings, or RECORDTYPE_NONE
+static RecordingType remembered_video_type(void) {
+    g_autofree char *type_name = settings_get_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT);
+    if (type_name == NULL)
+        return RECORDTYPE_NONE;
+    const RecordingType candidates[] = {RECORDTYPE_GEVCAPTURE, RECORDTYPE_MP4, RECORDTYPE_MKV};
+    for (size_t i = 0; i < G_N_ELEMENTS(candidates); i++) {
+        if (g_strcmp0(type_name, video_type_setting_name(candidates[i])) == 0)
+            return candidates[i];
+    }
+    log_debug("Unknown remembered video type '%s': ignored.", type_name);
+    return RECORDTYPE_NONE;
+}
+
 RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *filename;
     if (viewer->dataset_name == NULL) {
@@ -310,8 +334,9 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     log_debug("Asking for a name choice, default is %s.", filename);
 
-    GtkFileFilter *filter;
     GtkFileFilter *filter_gcv;
+    GtkFileFilter *filter_mkv;
+    GtkFileFilter *filter_mp4;
     GtkFileFilter *filter_all;
     GtkWidget *dialog;
     char *path;
@@ -349,6 +374,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
 
+    gboolean const burst_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton));
+
     const gchar *any_filter_name = "Supported video formats";
     filter_all = gtk_file_filter_new();
     gtk_file_filter_set_name(filter_all, any_filter_name);
@@ -379,27 +406,43 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
     const gchar *mkv_filter_name = "MKV video (lossless FFV1) (*.mkv)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, mkv_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.mkv");
+    filter_mkv = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter_mkv, mkv_filter_name);
+    gtk_file_filter_add_pattern(filter_mkv, "*.mkv");
     gtk_file_filter_add_pattern(filter_all, "*.mkv");
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    if (!burst_mode) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mkv);
     }
 
     const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, mp4_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.mp4");
+    filter_mp4 = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter_mp4, mp4_filter_name);
+    gtk_file_filter_add_pattern(filter_mp4, "*.mp4");
     gtk_file_filter_add_pattern(filter_all, "*.mp4");
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    if (!burst_mode) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mp4);
     }
 
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
 
-    // The default filter
-    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
+    // The default filter: the type of the last saved video if it can be used in this recording mode,
+    // else MP4 (GCV in burst mode, the only type available there)
+    RecordingType default_type = remembered_video_type();
+    if (default_type == RECORDTYPE_NONE || (burst_mode && default_type != RECORDTYPE_GEVCAPTURE))
+        default_type = burst_mode ? RECORDTYPE_GEVCAPTURE : RECORDTYPE_MP4;
+    log_debug("Default video type: %s", video_type_setting_name(default_type));
+    switch (default_type) {
+        case RECORDTYPE_MP4: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mp4); break;
+        case RECORDTYPE_MKV: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mkv); break;
+        default: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv); break;
+    }
+    // The MKV / MP4 filters that were not added to the dialog are not owned by it
+    if (burst_mode) {
+        g_object_ref_sink(filter_mkv);
+        g_object_unref(filter_mkv);
+        g_object_ref_sink(filter_mp4);
+        g_object_unref(filter_mp4);
+    }
 
     g_free(path);
     g_free(filename);
@@ -461,8 +504,11 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
             log_info("Unsupported video extension chosen : '%s'. Aborting recording.", extension);
             chosen_filetype = RECORDTYPE_NONE;
         }
-        if (chosen_filetype != RECORDTYPE_NONE)
+        if (chosen_filetype != RECORDTYPE_NONE) {
             settings_set_directory_of(SETTINGS_GROUP_VIDEO, filename);
+            if (video_type_setting_name(chosen_filetype) != NULL)
+                settings_set_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT, video_type_setting_name(chosen_filetype));
+        }
         gtk_widget_destroy(dialog);
         g_free(filename); // 'extension' pointed into it
         return chosen_filetype;
