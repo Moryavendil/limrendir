@@ -499,6 +499,12 @@ activate (GApplication *application)
 	select_mode (viewer, TRN_VIEWER_MODE_CAMERA_LIST);
 	update_device_list_cb (GTK_TOOL_BUTTON (viewer->refresh_button), viewer);
 
+    if (arv_get_n_devices () == 0) {
+        log_warning("No camera found.");
+        log_info("If a USB camera is connected, it might require sudo privileges to be seen.");
+        log_info("If you have no camera available, you can use a fake one by running arv-fake-gv-camera.");
+    }
+
     // Apply gevcapture options
     apply_gc_options(viewer);
 
@@ -523,7 +529,7 @@ activate (GApplication *application)
 
     setup_help_popover (viewer);
 
-    log_info("Type 'h' to display the available key bindings.");
+    // log_info("Type 'h' to display the available key bindings.");
 }
 
 static void

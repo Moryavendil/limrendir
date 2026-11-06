@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <libintl.h>
 #include <logroutines.h>
+#include <limrendir_settings.h>
 
 #if GST_GL_HAVE_WINDOW_X11 && defined (GDK_WINDOWING_X11)
 #include <gst/gl/x11/gstgldisplay_x11.h>
@@ -219,6 +220,7 @@ int main (int argc, char **argv)
         lrd_option_log_level = LOG_TRACE;
     }
     log_initialize(lrd_option_log_level);
+    settings_load();
 
 
 	if (arv_option_register_cache == NULL)
@@ -305,6 +307,7 @@ int main (int argc, char **argv)
 
 	g_object_unref (viewer);
 
+    settings_terminate();
     log_terminate();
 
 	return status;

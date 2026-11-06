@@ -2,6 +2,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/video/videooverlay.h>
+#include <string.h>
 #include <arv.h>
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
@@ -37,91 +38,6 @@ void remove_widget (GtkWidget *widget, gpointer data)
     gtk_container_remove (data, widget);
     g_object_unref (widget);
 }
-
-// GRID DRAWING
-gboolean draw_horizontal_line(int linenumber, uint8_t * buffer_data, int width, int height) {
-    if ((linenumber < 0) || (linenumber >= height)) {
-        return FALSE;
-    }
-    for (int i = 0 ; i < width ; i+=1) {
-        buffer_data[linenumber*width + i] = 0;
-    }
-    return TRUE;
-}
-
-gboolean draw_vertical_line(int linenumber, uint8_t * buffer_data, int width, int height) {
-    if ((linenumber < 0) || (linenumber >= width)) {
-        return FALSE;
-    }
-    for (int i = 0 ; i < height ; i+=1) {
-        buffer_data[i*width + linenumber] = 0;
-    }
-    return TRUE;
-}
-
-void draw_grid_on_buffer(uint8_t *buffer_data, int width, int height, GridType type_of_grid) {
-    // operations
-    int midline;
-    int n_line;
-    int lines_spacing = 100;
-
-    // HORIZONTAL
-    if ((type_of_grid == GRID_HORIZONTAL) || (type_of_grid == GRID_BOTH)) {
-        midline = height / 2;
-        n_line = 0;
-        while (draw_horizontal_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line += 1;
-        }
-        n_line = -1;
-        while (draw_horizontal_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line -= 1;
-        }
-    }
-
-    // VERTICAL
-    if ((type_of_grid == GRID_VERTICAL) || (type_of_grid == GRID_BOTH)) {
-        midline = width / 2;
-        n_line = 0;
-        while (draw_vertical_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line += 1;
-        }
-        n_line = -1;
-        while (draw_vertical_line(midline + n_line * lines_spacing, buffer_data, width, height)) {
-            n_line -= 1;
-        }
-    }
-}
-
-// ROI DRAWING
-void draw_roi_buffer(uint8_t *buffer_data, int width, int height, LrdViewer *viewer) {
-
-    if (viewer->show_roi) {
-        constrain_roi_to_field_of_view(viewer, width, height);
-        uint8_t attenuation_factor = 3;
-
-        // Lines over
-        for (int i = 0 ; i < width * viewer->roi_y ; i+=1) {
-            buffer_data[i] = buffer_data[i] / attenuation_factor;
-        }
-
-        // Lines in between
-        for (int i_hline = viewer->roi_y ; i_hline < viewer->roi_y + viewer->roi_h ; i_hline+=1) {
-            for (int i_vline = 0 ; i_vline < viewer->roi_x ; i_vline += 1) {
-                buffer_data[i_hline*width + i_vline] = buffer_data[i_hline*width + i_vline] / attenuation_factor;
-            }
-            for (int i_vline = viewer->roi_x + viewer->roi_w ; i_vline < width ; i_vline += 1) {
-                buffer_data[i_hline*width + i_vline] = buffer_data[i_hline*width + i_vline] / attenuation_factor;
-            }
-        }
-
-        // Lines under
-        for (int i = width * (viewer->roi_y + viewer->roi_h) ; i < width * height ; i+=1) {
-            buffer_data[i] = buffer_data[i] / attenuation_factor;
-        }
-    }
-
-}
-
 
 // SHOW AN ARAVIS BUFFER VIA GSTREAMER
 typedef struct {
@@ -173,9 +89,6 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
 
     buffer_data_uint8 = (uint8_t *) arv_buffer_get_data (arv_buffer, &buffer_size);
 
-    // DRAWING
-    draw_grid_on_buffer(buffer_data_uint8, width, height, viewer->grid_type);
-    draw_roi_buffer(buffer_data_uint8, width, height, viewer);
 
 //    // GET MIN MAX
 //    uint8_t valbuffermin = 255;
@@ -380,13 +293,24 @@ gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream)
     return FALSE;
 }
 
-// Gives n new buffers, each holding one full frame, to the stream
+// Gives n new buffers, each holding one full frame, to the stream.
+// The memory of the buffers is written once here: the system only really allocates memory the first time it is
+// written, and doing it while the stream thread receives a frame slows it down so much that frames are lost
+// (timeouts / missing packets), until every buffer has been used once (seconds with large frames and many buffers).
 void push_new_buffers (LrdViewer *viewer, unsigned n)
 {
     unsigned payload = arv_camera_get_payload (viewer->camera, NULL);
-    for (unsigned i = 0; i < n; i++)
-        arv_stream_push_buffer (viewer->stream, arv_buffer_new (payload, NULL));
+    gint64 const start_us = g_get_monotonic_time ();
+    for (unsigned i = 0; i < n; i++) {
+        ArvBuffer *buffer = arv_buffer_new (payload, NULL);
+        // (the size given by arv_buffer_get_data is the received size, 0 for a new buffer: use the payload)
+        void *data = (void *) arv_buffer_get_data (buffer, NULL);
+        if (data != NULL)
+            memset (data, 0, payload);
+        arv_stream_push_buffer (viewer->stream, buffer);
+    }
     viewer->n_stream_buffers += n;
+    log_debug ("%u buffers of %u bytes allocated in %.0f ms", n, payload, (g_get_monotonic_time () - start_us) / 1000.0);
 }
 
 // DISPLAY PIPELINE (shared by the live video and the recordings)
@@ -417,6 +341,8 @@ void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
     viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
     GstElement *videoconvert = gst_element_factory_make ("videoconvert", NULL);
     viewer->transform = gst_element_factory_make ("videoflip", NULL);
+    // Its videoflip starts untransformed: so must be the viewer state (used by the overlay)
+    reset_image_transform (viewer);
 
     log_trace("    Adding elements to the gstreamer pipeline.");
     gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
@@ -441,6 +367,8 @@ void add_display_sink (LrdViewer *viewer)
     viewer->videosink = gst_element_factory_make ("gtksink", NULL);
 
     g_object_get (viewer->videosink, "widget", &video_widget, NULL);
+    // The grid and the ROI are drawn over the video, not in the images
+    overlay_attach (viewer, video_widget);
     gtk_container_add (GTK_CONTAINER (viewer->video_frame), video_widget);
     gtk_widget_show (video_widget);
     g_object_set(G_OBJECT (video_widget), "force-aspect-ratio", TRUE, NULL);
@@ -461,6 +389,9 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
     log_trace("    Setting source caps.");
     GstCaps *caps = gst_caps_from_string (caps_string);
     arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+    // The overlay is drawn in the coordinates of these images
+    viewer->display_image_width = width;
+    viewer->display_image_height = height;
     gst_caps_set_simple (caps,
                          "width", G_TYPE_INT, width,
                          "height", G_TYPE_INT, height,
@@ -551,6 +482,7 @@ void stop_video (LrdViewer *viewer)
         arv_camera_stop_acquisition (viewer->camera, NULL);
 
 //    log_trace("    Removing widgets for each videoframe.");
+    overlay_detach (viewer);
     gtk_container_foreach (GTK_CONTAINER (viewer->video_frame), remove_widget, viewer->video_frame);
 
 //    log_trace("    Resetting events.");
@@ -579,10 +511,11 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 {
     if (type == ARV_STREAM_CALLBACK_TYPE_INIT) {
 
-        if (!arv_make_thread_high_priority (-10)) {
+        // Live video: slightly above normal (less important than recordings, cf stream_record_cb)
+        if (!arv_make_thread_high_priority (-5)) {
             log_warning ("Failed to make stream thread high priority");
         } else {
-            log_trace ("Made stream thread high priority");
+            log_trace ("Made stream thread high priority (nice -5)");
         }
 //        if (!arv_make_thread_realtime (10)) {
 //            log_warning ("Failed to make stream thread realtime. Try running as administrator.");
@@ -590,6 +523,57 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 //            log_trace ("Made stream thread realtime");
 //        }
     }
+}
+
+// Text "(dark %) min – max (saturated %)" of the last frame, or NULL. In ROI mode, only the ROI is considered.
+// Values are bytes: meaningful for 8-bit pixel formats.
+static char *saturation_text (LrdViewer *viewer)
+{
+    if (viewer->last_buffer == NULL)
+        return NULL;
+
+    size_t buffer_size;
+    const uint8_t *data = arv_buffer_get_data (viewer->last_buffer, &buffer_size);
+    if (data == NULL || buffer_size == 0)
+        return NULL;
+
+    // The zone considered (in bytes): the whole buffer, or the rows / columns of the ROI
+    gint width = 0, height = 0;
+    arv_buffer_get_image_region (viewer->last_buffer, NULL, NULL, &width, &height);
+    size_t const bytes_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (viewer->last_buffer)) / 8;
+    size_t row_bytes = buffer_size, stride = buffer_size, first_row = 0, n_rows = 1, first_byte = 0;
+    if (viewer->show_roi && bytes_per_pixel > 0 && width > 0 && height > 0 &&
+        (size_t) width * height * bytes_per_pixel <= buffer_size) {
+        int const x = CLAMP (viewer->roi_x, 0, width - 1);
+        int const y = CLAMP (viewer->roi_y, 0, height - 1);
+        int const w = CLAMP (viewer->roi_w, 1, width - x);
+        int const h = CLAMP (viewer->roi_h, 1, height - y);
+        row_bytes = (size_t) w * bytes_per_pixel;
+        stride = (size_t) width * bytes_per_pixel;
+        first_row = y;
+        n_rows = h;
+        first_byte = (size_t) x * bytes_per_pixel;
+    }
+
+    uint8_t value_min = 255, value_max = 0;
+    size_t n_dark = 0, n_saturated = 0;
+    for (size_t row = first_row; row < first_row + n_rows; row++) {
+        const uint8_t *line = data + row * stride + first_byte;
+        for (size_t i = 0; i < row_bytes; i++) {
+            uint8_t const value = line[i];
+            if (value > value_max)
+                value_max = value;
+            if (value < value_min)
+                value_min = value;
+            if (value == 0)
+                n_dark++;
+            else if (value == 255)
+                n_saturated++;
+        }
+    }
+    double const n_values = (double) row_bytes * n_rows;
+    return g_strdup_printf ("(%.2f %%) %d – %d (%.2f %%)", 100 * n_dark / n_values, value_min, value_max,
+                            100 * n_saturated / n_values);
 }
 
 gboolean update_status_bar_cb (void *data)
@@ -612,43 +596,8 @@ gboolean update_status_bar_cb (void *data)
     gtk_label_set_label (GTK_LABEL (viewer->fps_label), text);
     g_free (text);
 
-    // ROI label
-    text = NULL;
-    if (viewer->show_roi) {
-        text = g_strdup_printf("ROI: +%d +%d %dx%d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
-    } else if (viewer->last_buffer != NULL) {
-        uint8_t *buffer_data_uint8;
-        size_t buffer_size;
-
-        // get the data
-        buffer_data_uint8 = (uint8_t *) arv_buffer_get_data (viewer->last_buffer, &buffer_size);
-
-        // GET MIN MAX
-        uint8_t valbuffermin = 255;
-        uint8_t valbuffermax = 0;
-        size_t saturated_0 = 0;
-        size_t saturated_255 = 0;
-        for (size_t i = 0 ; i < buffer_size ; i+=1) {
-            if (buffer_data_uint8[i] > valbuffermax) {
-                valbuffermax = buffer_data_uint8[i];
-            }
-            if (buffer_data_uint8[i] < valbuffermin) {
-                valbuffermin = buffer_data_uint8[i];
-            }
-            if (buffer_data_uint8[i] == 0) {
-                saturated_0 += 1;
-            }
-            if (buffer_data_uint8[i] == 255) {
-                saturated_255 += 1;
-            }
-        }
-        float percent_saturated_0 = 100 * (float) saturated_0 / (float) buffer_size;
-        float percent_saturated_255 = 100 * (float) saturated_255 / (float) buffer_size;
-//        text = g_strdup_printf(" %d - %d ", valbuffermax, valbuffermin);
-        text = g_strdup_printf("(%.2f %%) %d – %d (%.2f %%)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
-//        text = g_strdup_printf("(%d / %d) (%.5f %% saturated)", saturated_0, buffer_size, percent_saturated_0);
-
-    }
+    // Saturation label (on the ROI in ROI mode, the ROI size is shown over the video)
+    text = saturation_text (viewer);
     gtk_label_set_label (GTK_LABEL (viewer->roi_label), text);
     g_free (text);
 

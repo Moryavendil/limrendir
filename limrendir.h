@@ -26,7 +26,7 @@
 
 G_BEGIN_DECLS
 
-#define LIMRENDIR_VERSION "0.8.0"
+#define LIMRENDIR_VERSION "0.8.1"
 
 typedef struct	_LrdViewer	LrdViewer;
 
@@ -80,7 +80,8 @@ typedef enum {
     GRID_NOGRID,
     GRID_HORIZONTAL,
     GRID_VERTICAL,
-    GRID_BOTH
+    GRID_BOTH,
+    GRID_CROSSHAIR    // one horizontal and one vertical line through the center, and a circle
 } GridType;
 
 // TYPE OF RECORD THAT IS WISHED
@@ -267,6 +268,17 @@ struct  _LrdViewer {
     int roi_w;
     int roi_h;
 
+    // Overlay (grid and ROI drawn on top of the video widget)
+    GtkWidget *video_widget;            // the gtksink widget, NULL when there is no video
+    int display_image_width;            // size of the displayed images (camera region), before rotation / flip
+    int display_image_height;
+    gboolean roi_dragging;              // a new ROI is being drawn with the mouse
+    gboolean roi_drag_moved;            // the mouse moved enough since the press to be a drag
+    double roi_drag_x, roi_drag_y;      // drag start, image coordinates
+    double roi_drag_widget_x, roi_drag_widget_y; // drag start, widget coordinates
+    int roi_before_drag[4];             // x, y, w, h of the ROI when the drag started
+    gboolean roi_crosshair_cursor;      // the crosshair cursor is shown (ROI drawing possible)
+
     // download
     RecordingType record_type;
 
@@ -306,6 +318,8 @@ void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer);
 
 // Image transforms
 void update_transform (LrdViewer *viewer);
+// The videoflip method matching the current rotation and flips
+gint get_videoflip_method (LrdViewer *viewer);
 
 void rotate_cw_cb (GtkButton *button, LrdViewer *viewer);
 
@@ -469,6 +483,11 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data);
 // roi
 void constrain_roi(LrdViewer *viewer);
 void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height);
+
+// overlay (limrendir_overlay.c)
+void overlay_attach (LrdViewer *viewer, GtkWidget *video_widget);
+void overlay_detach (LrdViewer *viewer);
+void overlay_queue_redraw (LrdViewer *viewer);
 void crop_to_roi(LrdViewer *viewer);
 
 // Video streaming

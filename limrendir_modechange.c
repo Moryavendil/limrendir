@@ -3,6 +3,7 @@
 #include <arv.h>
 #include <limrendir.h>
 #include <logroutines.h>
+#include <limrendir_settings.h>
 
 // USB memory check
 
@@ -129,7 +130,7 @@ void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer)
 }
 
 // Image transforms
-void update_transform (LrdViewer *viewer)
+gint get_videoflip_method (LrdViewer *viewer)
 {
     static const gint methods[4][4] = {
             {0, 1, 2, 3},
@@ -138,8 +139,13 @@ void update_transform (LrdViewer *viewer)
             {2, 3, 0, 1}
     };
     int index = (viewer->flip_horizontal ? 1 : 0) + (viewer->flip_vertical ? 2 : 0);
+    return methods[index][viewer->rotation % 4];
+}
 
-    g_object_set (viewer->transform, "method", methods[index][viewer->rotation % 4], NULL);
+void update_transform (LrdViewer *viewer)
+{
+    g_object_set (viewer->transform, "method", get_videoflip_method (viewer), NULL);
+    overlay_queue_redraw (viewer);
 }
 
 void rotate_cw_cb (GtkButton *button, LrdViewer *viewer)
@@ -206,10 +212,124 @@ gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const ch
     return success;
 }
 
+// Snapshot formats, attached to the dialog filters (the "Supported image formats" filter has none)
+typedef enum {
+    SNAPSHOT_FORMAT_NONE,
+    SNAPSHOT_FORMAT_PNG,
+    SNAPSHOT_FORMAT_JPEG,
+    SNAPSHOT_FORMAT_RAW
+} SnapshotFormat;
+
+#define SNAPSHOT_FORMAT_KEY "lrd-snapshot-format"
+
+static const char *_snapshot_format_extension (SnapshotFormat format)
+{
+    switch (format) {
+        case SNAPSHOT_FORMAT_PNG: return ".png";
+        case SNAPSHOT_FORMAT_JPEG: return ".jpg";
+        case SNAPSHOT_FORMAT_RAW: return ".raw";
+        default: return NULL;
+    }
+}
+
+// The format given by the extension of 'name' (case insensitive), or SNAPSHOT_FORMAT_NONE if it is not a known one
+static SnapshotFormat _snapshot_format_from_name (const char *name)
+{
+    g_autofree char *lower = g_ascii_strdown (name, -1);
+    if (g_str_has_suffix (lower, ".png"))
+        return SNAPSHOT_FORMAT_PNG;
+    if (g_str_has_suffix (lower, ".jpg") || g_str_has_suffix (lower, ".jpeg"))
+        return SNAPSHOT_FORMAT_JPEG;
+    if (g_str_has_suffix (lower, ".raw"))
+        return SNAPSHOT_FORMAT_RAW;
+    return SNAPSHOT_FORMAT_NONE;
+}
+
+// The format remembered in the settings ("png", "jpg" or "raw"), or SNAPSHOT_FORMAT_NONE
+static SnapshotFormat _snapshot_remembered_format (void)
+{
+    g_autofree char *format_name = settings_get_string (SETTINGS_GROUP_SNAPSHOT, SETTINGS_KEY_FORMAT);
+    if (format_name == NULL)
+        return SNAPSHOT_FORMAT_NONE;
+    g_autofree char *dummy_name = g_strdup_printf ("snapshot.%s", format_name);
+    return _snapshot_format_from_name (dummy_name);
+}
+
+// Asks the user whether to replace an existing file. Returns TRUE to replace it.
+static gboolean _snapshot_confirm_overwrite (GtkWindow *parent, const char *filename)
+{
+    g_autofree char *basename = g_path_get_basename (filename);
+    GtkWidget *message = gtk_message_dialog_new (parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+                                                 "A file named \"%s\" already exists. Do you want to replace it?",
+                                                 basename);
+    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (message),
+                                              "Replacing it will overwrite its contents.");
+    gtk_dialog_add_buttons (GTK_DIALOG (message), "_Cancel", GTK_RESPONSE_CANCEL,
+                            "_Replace", GTK_RESPONSE_ACCEPT, NULL);
+    gtk_dialog_set_default_response (GTK_DIALOG (message), GTK_RESPONSE_CANCEL);
+    gint const response = gtk_dialog_run (GTK_DIALOG (message));
+    gtk_widget_destroy (message);
+    return response == GTK_RESPONSE_ACCEPT;
+}
+
+static SnapshotFormat _snapshot_filter_format (GtkFileFilter *filter)
+{
+    if (filter == NULL)
+        return SNAPSHOT_FORMAT_NONE;
+    return (SnapshotFormat) GPOINTER_TO_INT (g_object_get_data (G_OBJECT (filter), SNAPSHOT_FORMAT_KEY));
+}
+
+// Returns 'name' (newly allocated) with its known image extension, if any, replaced by the one of 'format'
+static char *_snapshot_name_with_format (const char *name, SnapshotFormat format)
+{
+    size_t base_length = strlen (name);
+    SnapshotFormat const current_format = _snapshot_format_from_name (name);
+    if (current_format != SNAPSHOT_FORMAT_NONE)
+        base_length = strrchr (name, '.') - name;
+    return g_strdup_printf ("%.*s%s", (int) base_length, name, _snapshot_format_extension (format));
+}
+
+// GTK3 does not change the extension of the file name when another filter is chosen: we do it ourselves
+static void _snapshot_filter_changed_cb (GtkFileChooser *chooser, GParamSpec *pspec, gpointer user_data)
+{
+    SnapshotFormat const format = _snapshot_filter_format (gtk_file_chooser_get_filter (chooser));
+    if (format == SNAPSHOT_FORMAT_NONE)
+        return; // "Supported image formats": keep the name as it is
+
+    g_autofree char *current_name = gtk_file_chooser_get_current_name (chooser);
+    if (current_name == NULL || current_name[0] == '\0')
+        return;
+    g_autofree char *new_name = _snapshot_name_with_format (current_name, format);
+    gtk_file_chooser_set_current_name (chooser, new_name);
+}
+
+static GtkFileFilter *_snapshot_add_filter (GtkFileChooser *chooser, GtkFileFilter *filter_all, const char *name,
+                                            const char *mime_type, const char *pattern, SnapshotFormat format)
+{
+    GtkFileFilter *filter = gtk_file_filter_new ();
+    gtk_file_filter_set_name (filter, name);
+    if (mime_type != NULL) {
+        gtk_file_filter_add_mime_type (filter, mime_type);
+        gtk_file_filter_add_mime_type (filter_all, mime_type);
+    }
+    if (pattern != NULL) {
+        gtk_file_filter_add_pattern (filter, pattern);
+        gtk_file_filter_add_pattern (filter_all, pattern);
+    }
+    g_object_set_data (G_OBJECT (filter), SNAPSHOT_FORMAT_KEY, GINT_TO_POINTER (format));
+    gtk_file_chooser_add_filter (chooser, filter);
+    return filter;
+}
+
 void snapshot_cb (GtkButton *button, LrdViewer *viewer)
 {
-    GtkFileFilter *filter;
     GtkFileFilter *filter_all;
+    GtkFileFilter *filter_png = NULL;
+    GtkFileFilter *filter_jpeg = NULL;
+    GtkFileFilter *filter_raw = NULL;
+    GtkFileFilter *default_filter;
+    SnapshotFormat default_format;
     GtkWidget *dialog;
     GstSample *sample = NULL;
     ArvBuffer *buffer = NULL;
@@ -218,9 +338,9 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     GDateTime *date;
     char *date_string;
     int width, height;
-    const char *data;
+    g_autofree char *data = NULL;
     const char *pixel_format;
-    size_t size;
+    size_t size = 0;
     gint result;
 
     if (GST_IS_ELEMENT (viewer->videosink))
@@ -237,21 +357,37 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
 
     pixel_format = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
     arv_buffer_get_image_region (buffer, NULL, NULL, &width, &height);
-    data = arv_buffer_get_data (buffer, &size);
+    // Copy the raw data now: the stream may reuse the buffer memory while the dialog is open
+    if (ARV_IS_BUFFER (buffer)) {
+        const void *buffer_data = arv_buffer_get_data (buffer, &size);
+        data = g_memdup2 (buffer_data, size);
+    }
 
     date = g_date_time_new_now_local ();
     date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
-    filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s.raw",
+    // Default format: the one of the last saved snapshot if it can be used here,
+    // else PNG (a viewable image), or RAW if only the camera buffer is available
+    default_format = _snapshot_remembered_format ();
+    if (default_format == SNAPSHOT_FORMAT_RAW ? !ARV_IS_BUFFER (buffer)
+                                              : (default_format == SNAPSHOT_FORMAT_NONE || !GST_IS_SAMPLE (sample)))
+        default_format = GST_IS_SAMPLE (sample) ? SNAPSHOT_FORMAT_PNG : SNAPSHOT_FORMAT_RAW;
+    filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s%s",
                                 arv_camera_get_vendor_name (viewer->camera, NULL),
                                 arv_camera_get_device_serial_number (viewer->camera, NULL),
                                 width,
                                 height,
                                 pixel_format != NULL ? pixel_format : "Unknown",
-                                date_string);
+                                date_string,
+                                _snapshot_format_extension (default_format));
     g_free (date_string);
     g_date_time_unref (date);
 
-    path = g_build_filename (g_get_user_special_dir (G_USER_DIRECTORY_PICTURES), filename, NULL);
+    // Default folder: the one where the last snapshot was saved, else the user's pictures folder
+    g_autofree char *snapshot_dir = settings_get_directory (SETTINGS_GROUP_SNAPSHOT);
+    if (snapshot_dir == NULL)
+        snapshot_dir = g_strdup (g_get_user_special_dir (G_USER_DIRECTORY_PICTURES) != NULL
+                                 ? g_get_user_special_dir (G_USER_DIRECTORY_PICTURES) : g_get_home_dir ());
+    path = g_build_filename (snapshot_dir, filename, NULL);
 
     dialog = gtk_file_chooser_dialog_new ("Save Snapshot", GTK_WINDOW (viewer->main_window),
                                           GTK_FILE_CHOOSER_ACTION_SAVE,
@@ -268,55 +404,78 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     gtk_file_filter_set_name (filter_all, "Supported image formats");
 
     if (GST_IS_SAMPLE (sample)) {
-        filter = gtk_file_filter_new ();
-        gtk_file_filter_add_mime_type (filter, "image/png");
-        gtk_file_filter_add_mime_type (filter_all, "image/png");
-        gtk_file_filter_set_name (filter, "PNG (*.png)");
-        gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (dialog), filter);
-
-        filter = gtk_file_filter_new ();
-        gtk_file_filter_add_mime_type (filter, "image/jpeg");
-        gtk_file_filter_add_mime_type (filter_all, "image/jpeg");
-        gtk_file_filter_set_name (filter, "JPEG (*.jpeg)");
-        gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (dialog), filter);
+        filter_png = _snapshot_add_filter (GTK_FILE_CHOOSER (dialog), filter_all, "PNG (*.png)",
+                                           "image/png", NULL, SNAPSHOT_FORMAT_PNG);
+        filter_jpeg = _snapshot_add_filter (GTK_FILE_CHOOSER (dialog), filter_all, "JPEG (*.jpg)",
+                                            "image/jpeg", NULL, SNAPSHOT_FORMAT_JPEG);
     }
 
     if (ARV_IS_BUFFER (buffer)) {
-        filter = gtk_file_filter_new ();
-        gtk_file_filter_add_pattern (filter, "*.raw");
-        gtk_file_filter_add_pattern (filter_all, "*.raw");
-        gtk_file_filter_set_name (filter, "Raw images (*.raw)");
-        gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (dialog), filter);
+        filter_raw = _snapshot_add_filter (GTK_FILE_CHOOSER (dialog), filter_all, "Raw images (*.raw)",
+                                           NULL, "*.raw", SNAPSHOT_FORMAT_RAW);
     }
 
     gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (dialog), filter_all);
-    gtk_file_chooser_set_filter (GTK_FILE_CHOOSER (dialog), filter_all);
+    switch (default_format) {
+        case SNAPSHOT_FORMAT_PNG: default_filter = filter_png; break;
+        case SNAPSHOT_FORMAT_JPEG: default_filter = filter_jpeg; break;
+        default: default_filter = filter_raw; break;
+    }
+    gtk_file_chooser_set_filter (GTK_FILE_CHOOSER (dialog), default_filter);
+    g_signal_connect (dialog, "notify::filter", G_CALLBACK (_snapshot_filter_changed_cb), NULL);
 
     g_free (path);
     g_free (filename);
 
-    result = gtk_dialog_run (GTK_DIALOG (dialog));
-    if (result == GTK_RESPONSE_ACCEPT) {
-        g_autoptr (GError) error = NULL;
-        g_autofree char * content_type = NULL;
-        gboolean success = FALSE;
-
+    SnapshotFormat format = SNAPSHOT_FORMAT_NONE;
+    filename = NULL;
+    while ((result = gtk_dialog_run (GTK_DIALOG (dialog))) == GTK_RESPONSE_ACCEPT) {
         filename = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (dialog));
 
-        content_type = g_content_type_guess (filename, NULL, 0, NULL);
+        // The extension typed decides the format. Without a known one, the selected filter does
+        // (the default format for "Supported image formats"), and its extension is added.
+        format = _snapshot_format_from_name (filename);
+        if (format != SNAPSHOT_FORMAT_NONE)
+            break; // the dialog already asked before overwriting this exact name
 
-        if (GST_IS_SAMPLE (sample) && g_content_type_is_mime_type (content_type, "image/png")) {
+        format = _snapshot_filter_format (gtk_file_chooser_get_filter (GTK_FILE_CHOOSER (dialog)));
+        if (format == SNAPSHOT_FORMAT_NONE)
+            format = default_format;
+        char *filename_with_extension = _snapshot_name_with_format (filename, format);
+        g_free (filename);
+        filename = filename_with_extension;
+
+        // The dialog did not check the name with the added extension: ask before replacing it
+        if (!g_file_test (filename, G_FILE_TEST_EXISTS) || _snapshot_confirm_overwrite (GTK_WINDOW (dialog), filename))
+            break;
+
+        // Back to the dialog, showing the full name so that the user can change it
+        g_autofree char *basename = g_path_get_basename (filename);
+        gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER (dialog), basename);
+        g_clear_pointer (&filename, g_free);
+    }
+
+    if (result == GTK_RESPONSE_ACCEPT) {
+        g_autoptr (GError) error = NULL;
+        gboolean success = FALSE;
+
+        if (GST_IS_SAMPLE (sample) && format == SNAPSHOT_FORMAT_PNG) {
             success = _save_gst_sample_to_file (sample, filename, "image/png", NULL);
-        } else if (GST_IS_SAMPLE (sample) && g_content_type_is_mime_type (content_type, "image/jpeg")) {
+        } else if (GST_IS_SAMPLE (sample) && format == SNAPSHOT_FORMAT_JPEG) {
             success = _save_gst_sample_to_file (sample, filename, "image/jpeg", NULL);
         } else if (ARV_IS_BUFFER (buffer)) {
             success = g_file_set_contents (filename, data, size, &error);
-            g_free (filename);
         }
 
-        if (!success)
+        if (success) {
+            log_debug ("Snapshot saved to '%s'", filename);
+            settings_set_directory_of (SETTINGS_GROUP_SNAPSHOT, filename);
+            // Remember the format, without the dot ("png", "jpg" or "raw")
+            settings_set_string (SETTINGS_GROUP_SNAPSHOT, SETTINGS_KEY_FORMAT, _snapshot_format_extension (format) + 1);
+        } else
             arv_viewer_show_notification (viewer, "Failed to save image to file",
                                           error != NULL ? error->message : NULL);
+        g_free (filename);
     }
 
     gtk_widget_destroy (dialog);
@@ -435,6 +594,13 @@ gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 
     if (arv_camera_is_uv_device (viewer->camera)) {
         arv_camera_uv_set_usb_mode (viewer->camera, viewer->usb_mode);
+        // ARV_UV_USB_MODE_DEFAULT is async since Aravis 0.8.28, but sync before
+        if (viewer->usb_mode == ARV_UV_USB_MODE_SYNC) {
+            log_info("The USB device I/O mode is synchronous: the asynchronous mode usually loses fewer frames "
+                     "(option --usb-mode=async).");
+        } else {
+            log_debug("USB device I/O mode: asynchronous");
+        }
         check_usbfs_memory ();
     }
 

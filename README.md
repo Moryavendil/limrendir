@@ -9,24 +9,39 @@ It is a mashup between Aravis Viewer, which allows for user-friendly interaction
 
 ## How to install
 
-First you have to install some dependencies to be able to install Aravis
+### 1. GStreamer plugins
+
+Limrendir displays and records the video using GStreamer:
+
+    sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly \
+                     gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gtk3
+
+### 2. Aravis (version >= 0.8)
+
+On recent distributions (e.g. Debian 13), the packaged Aravis is recent enough:
+
+    sudo apt install libaravis-dev aravis-tools
+
+Otherwise, build it from source. First install its dependencies:
 
     sudo apt install libxml2-dev libglib2.0-dev cmake libusb-1.0-0-dev gobject-introspection \
-                     libgtk-3-dev gtk-doc-tools  xsltproc libgstreamer1.0-dev \
+                     libgtk-3-dev gtk-doc-tools xsltproc libgstreamer1.0-dev \
                      libgstreamer-plugins-base1.0-dev \
-                     libgirepository1.0-dev gettext
+                     libgirepository1.0-dev gettext meson ninja-build
 
-Limrendir displays the video with the GStreamer `gtksink` plugin:
+Then [build and install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html), and refresh the list of installed libraries (otherwise limrendir fails to start with "error while loading shared libraries: libaravis..."):
 
-    sudo apt install gstreamer1.0-gtk3
+    sudo ldconfig
 
-Also, because Aravis relies on it you have to install [meson](https://mesonbuild.com/) (if the version given by apt is too old, try using pip).
+### 3. Limrendir
 
-Then [install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html) (version >= 0.8). 
+Install what is needed to compile it (already there if you built Aravis from source):
 
-Then download this project and compile it:
+    sudo apt install cmake libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
-    git clone git@github.com:Moryavendil/limrendir.git
+Download this project and compile it:
+
+    git clone https://github.com/Moryavendil/limrendir.git
     cd limrendir
     cmake -B build && cmake --build build
     ./build/limrendir
@@ -35,9 +50,9 @@ Then download this project and compile it:
 
 Use option `--help` to know about the available options. Limrendir can be run from any folder.
 
-The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
+### Trying limrendir without a camera
 
-Note: If your version of cmake is too old, you can use pip to update it. If it doesn't work, try lowering the required version in the CMakeLists.txt file (but then I can't guarantee everything will work properly).
+Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
 
 ## Troubleshooting: camera not listed
 
@@ -51,13 +66,13 @@ During recording there can be dropped frames, i.e. frames that were not saved fo
 
 ### Check the camera-computer connection
 * Ensure that the camera is properly connected to your computer with an appropriate cable (Ethernet: a category 6 Ethernet cable / USB: a 3.0 cable).
-* Ethernet cameras: Verify that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (preferrably 9000).
+* Ethernet cameras: Verify that the connection MTU is high enough. Go to network manager, select the network connection, check that MTU >= 8192 (e.g. 9000).
 * USB cameras: Check that the USB buffer limit is high enough (display it with `cat /sys/module/usbcore/parameters/usbfs_memory_mb`). To raise it until next reboot: `echo 1000 | sudo tee /sys/module/usbcore/parameters/usbfs_memory_mb`.
 
 ### Upgrade the permissions given to limrendir
-* Run limrendir as administrator (using `sudo`), which will allow to make the Aravis thread relatime.
-* For Ethernet cameras, use packet sockets: `sudo setcap cap_net_raw+ep limrendir`
-* Nice the program: `sudo nice -5 ./limrendir`
+* Run limrendir as administrator (using `sudo`), which will allow to make the Aravis thread realtime, and to give the recording thread the highest priority (limrendir sets the priority of its acquisition threads itself, as much as it is allowed to).
+* For Ethernet cameras, use packet sockets: `sudo setcap cap_net_raw+ep build/limrendir`
+* Raise the priority of the whole program: `sudo nice -n -5 ./build/limrendir`
 
 ### Use higher timeouts
 * For Ethernet cameras, if the dropped frames comes from timeouts being reached (usually indicated by the ARV_BUFFER_STATUS_TIMEOUT buffer state), try using higher packet timeout and frame retention time: launch limrendir with arguments `-m 1000 -p 1000`
@@ -66,12 +81,12 @@ During recording there can be dropped frames, i.e. frames that were not saved fo
  * If your computer is a 2000's toaster with less than 2 GB of RAM, try buying another one
  * Limitate usage of CPU-heavy and RAM-guzzling applications such as Chrome
 
-See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html) and [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html).
+See also the advices [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html) for USB cameras and [here](https://aravisproject.github.io/aravis/aravis-stable/ethernet.html) for Ethernet cameras.
 
 
 ## About the code
 
-Limrendir is written in C and based on Aravis (0.8), gstreamer (1.0) and GTK+ (3.0).
+Limrendir is written in C and based on Aravis (0.8/0.10), gstreamer (1.0) and GTK+ (3.0).
 
 A consequent part of the code is directly burrowed or adapted from Aravis Viewer. My additions consist mainly of 
 
@@ -83,10 +98,21 @@ I am not a professional software developer so the code quality might not be perf
 
 ## To-Do list
 
-Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
+? Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
 
+? Better grid (finer)
+
+? More settings remembered between sessions:
+- the mp4 encoding options
+- the grid spacing (fine = 30 px / medium = 60 px / coarse = 120 px / medium (in px)
 
 ? Add zebra patterns
+
+
+## Technical information
+
+* The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
+* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
 
 
 ## Licence

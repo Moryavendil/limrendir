@@ -7,6 +7,7 @@
 #include <limrendir.h>
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
+#include <limrendir_settings.h>
 
 
 //// These are straight-up copy-pasted form gevCapture
@@ -98,6 +99,90 @@ static FILE *open_dataset_file(LrdViewer *viewer, const char *dirname, const cha
     return file;
 }
 
+// RECORDED REGION
+// The part of the images that is recorded, decided when the recording starts (the ROI cannot change during it):
+// the ROI if it is used, constrained to the field of view, else the whole field of view. A ROI equal to the whole
+// field of view counts as no ROI.
+typedef struct {
+    gboolean using_roi;     // a ROI smaller than the field of view is used
+    gboolean cropped;       // the recorded region is smaller than the field of view
+    int fov_width, fov_height;
+    int x, y, width, height;
+} RecordedRegion;
+
+static RecordedRegion recorded_region;
+
+// With even_size (needed by H.264 4:2:0 in MP4), the width and height are rounded down to even numbers.
+static void prepare_recorded_region (LrdViewer *viewer, gboolean even_size) {
+    RecordedRegion *r = &recorded_region;
+    arv_camera_get_region (viewer->camera, NULL, NULL, &r->fov_width, &r->fov_height, NULL);
+    r->x = 0;
+    r->y = 0;
+    r->width = r->fov_width;
+    r->height = r->fov_height;
+
+    if (viewer->show_roi) {
+        constrain_roi_to_field_of_view (viewer, r->fov_width, r->fov_height);
+        r->x = viewer->roi_x;
+        r->y = viewer->roi_y;
+        r->width = viewer->roi_w;
+        r->height = viewer->roi_h;
+    }
+
+    if (even_size) {
+        // Shrink by one pixel if needed (keeping at least 2 pixels, moved back inside the field of view)
+        if (r->width % 2 != 0 || r->height % 2 != 0)
+            log_info("MP4 videos need an even width and height: the recorded region loses its last odd column / row.");
+        r->width = MAX (r->width - r->width % 2, 2);
+        r->height = MAX (r->height - r->height % 2, 2);
+        r->x = MAX (MIN (r->x, r->fov_width - r->width), 0);
+        r->y = MAX (MIN (r->y, r->fov_height - r->height), 0);
+    }
+
+    r->cropped = r->x != 0 || r->y != 0 || r->width != r->fov_width || r->height != r->fov_height;
+    r->using_roi = viewer->show_roi && r->cropped;
+    if (viewer->show_roi && !r->using_roi)
+        log_debug("The ROI is the whole field of view: recording as without ROI.");
+    log_debug("Recorded region: x: %d ; y: %d ; w: %d ; h: %d (field of view %dx%d, %s)", r->x, r->y, r->width, r->height,
+              r->fov_width, r->fov_height, r->using_roi ? "ROI" : "no ROI");
+}
+
+// Writes the recorded region of a frame in the .gcv image file
+static void write_recorded_region (FILE *file, ArvBuffer *buffer) {
+    size_t size;
+    const uint8_t *data = arv_buffer_get_data (buffer, &size);
+    const RecordedRegion *r = &recorded_region;
+    if (!r->cropped) {
+        fwrite (data, 1, size, file);
+        return;
+    }
+
+    gint buffer_width = 0, buffer_height = 0;
+    arv_buffer_get_image_region (buffer, NULL, NULL, &buffer_width, &buffer_height);
+    guint const bits_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer));
+    size_t const bpp = bits_per_pixel / 8;
+    if (bits_per_pixel % 8 != 0 || bpp == 0 || buffer_width != r->fov_width || buffer_height != r->fov_height ||
+        size < (size_t) buffer_width * buffer_height * bpp) {
+        // Should not happen (the field of view cannot change during a recording): never read outside the frame
+        static gboolean warned = FALSE;
+        if (!warned)
+            log_warning("Frame of unexpected size or format (%dx%d): the whole frame is recorded, not the ROI.",
+                        buffer_width, buffer_height);
+        warned = TRUE;
+        fwrite (data, 1, size, file);
+        return;
+    }
+
+    size_t const stride = (size_t) buffer_width * bpp;
+    if (r->width == buffer_width) {
+        // Whole rows: one block
+        fwrite (data + r->y * stride, 1, r->height * stride, file);
+    } else {
+        for (int row = r->y; row < r->y + r->height; row++)
+            fwrite (data + row * stride + r->x * bpp, 1, r->width * bpp, file);
+    }
+}
+
 // Creates the .gcv folder and its files. Returns FALSE (with everything closed) if this is not possible.
 gboolean open_files(LrdViewer *viewer) {
 
@@ -151,11 +236,12 @@ void write_meta(LrdViewer *viewer) {
     fprintf(metaFile, "cameraRegionY=%d\n", y_offset);
     fprintf(metaFile, "cameraRegionWidth=%d\n", width);
     fprintf(metaFile, "cameraRegionHeight=%d\n", height);
-    fprintf(metaFile, "usingROI=%s\n", viewer->show_roi ? "true" : "false");
-    fprintf(metaFile, "viewerRegionX=%d\n", viewer->roi_x);
-    fprintf(metaFile, "viewerRegionY=%d\n", viewer->roi_y);
-    fprintf(metaFile, "viewerRegionWidth=%d\n", viewer->roi_w);
-    fprintf(metaFile, "viewerRegionHeight=%d\n", viewer->roi_h);
+    // The recorded region (prepare_recorded_region), relative to the camera region
+    fprintf(metaFile, "usingROI=%s\n", recorded_region.using_roi ? "true" : "false");
+    fprintf(metaFile, "viewerRegionX=%d\n", recorded_region.x);
+    fprintf(metaFile, "viewerRegionY=%d\n", recorded_region.y);
+    fprintf(metaFile, "viewerRegionWidth=%d\n", recorded_region.width);
+    fprintf(metaFile, "viewerRegionHeight=%d\n", recorded_region.height);
     fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
     fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
     fprintf(metaFile, "captureFrequency=%f\n", get_actual_frame_rate(viewer));
@@ -283,6 +369,30 @@ char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
     return filename;
 }
 
+// Name of a video type in the settings ("gcv", "mp4" or "mkv"), NULL for the types that cannot be chosen
+static const char *video_type_setting_name(RecordingType recording_type) {
+    switch (recording_type) {
+        case RECORDTYPE_GEVCAPTURE: return "gcv";
+        case RECORDTYPE_MP4: return "mp4";
+        case RECORDTYPE_MKV: return "mkv";
+        default: return NULL;
+    }
+}
+
+// The video type remembered in the settings, or RECORDTYPE_NONE
+static RecordingType remembered_video_type(void) {
+    g_autofree char *type_name = settings_get_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT);
+    if (type_name == NULL)
+        return RECORDTYPE_NONE;
+    const RecordingType candidates[] = {RECORDTYPE_GEVCAPTURE, RECORDTYPE_MP4, RECORDTYPE_MKV};
+    for (size_t i = 0; i < G_N_ELEMENTS(candidates); i++) {
+        if (g_strcmp0(type_name, video_type_setting_name(candidates[i])) == 0)
+            return candidates[i];
+    }
+    log_debug("Unknown remembered video type '%s': ignored.", type_name);
+    return RECORDTYPE_NONE;
+}
+
 RecordingType confirm_dataset_name(LrdViewer *viewer)  {
     char *filename;
     if (viewer->dataset_name == NULL) {
@@ -309,8 +419,9 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     log_debug("Asking for a name choice, default is %s.", filename);
 
-    GtkFileFilter *filter;
     GtkFileFilter *filter_gcv;
+    GtkFileFilter *filter_mkv;
+    GtkFileFilter *filter_mp4;
     GtkFileFilter *filter_all;
     GtkWidget *dialog;
     char *path;
@@ -328,14 +439,17 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
 
-    // Si le dossier existe deja, le mkdir echoue et osef.
-    char* lrd_videos_path = NULL;
-    if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
-        lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
-    } else {
-        lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
+    // Default folder: the one where the last video was saved, else Limrendir-videos in the user's videos folder
+    char* lrd_videos_path = settings_get_directory(SETTINGS_GROUP_VIDEO);
+    if (lrd_videos_path == NULL) {
+        if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
+            lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
+        } else {
+            lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
+        }
+        // Si le dossier existe deja, le mkdir echoue et osef.
+        mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
     }
-    mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
 
     log_debug("The saving dir is %s", lrd_videos_path);
 
@@ -344,6 +458,8 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 
     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
+
+    gboolean const burst_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton));
 
     const gchar *any_filter_name = "Supported video formats";
     filter_all = gtk_file_filter_new();
@@ -374,26 +490,44 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
 //    gtk_file_filter_add_pattern(filter_all, "*.avi");
 //    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
 
-    const gchar *mkv_filter_name = "MKV video (*.mkv)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, mkv_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.mkv");
-//    gtk_file_filter_add_pattern(filter_all, "*.mkv");
-//    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    const gchar *mkv_filter_name = "MKV video (lossless FFV1) (*.mkv)";
+    filter_mkv = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter_mkv, mkv_filter_name);
+    gtk_file_filter_add_pattern(filter_mkv, "*.mkv");
+    gtk_file_filter_add_pattern(filter_all, "*.mkv");
+    if (!burst_mode) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mkv);
+    }
 
     const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, mp4_filter_name);
-    gtk_file_filter_add_pattern(filter, "*.mp4");
+    filter_mp4 = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter_mp4, mp4_filter_name);
+    gtk_file_filter_add_pattern(filter_mp4, "*.mp4");
     gtk_file_filter_add_pattern(filter_all, "*.mp4");
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
+    if (!burst_mode) {
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mp4);
     }
 
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
 
-    // The default filter
-    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
+    // The default filter: the type of the last saved video if it can be used in this recording mode,
+    // else MP4 (GCV in burst mode, the only type available there)
+    RecordingType default_type = remembered_video_type();
+    if (default_type == RECORDTYPE_NONE || (burst_mode && default_type != RECORDTYPE_GEVCAPTURE))
+        default_type = burst_mode ? RECORDTYPE_GEVCAPTURE : RECORDTYPE_MP4;
+    log_debug("Default video type: %s", video_type_setting_name(default_type));
+    switch (default_type) {
+        case RECORDTYPE_MP4: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mp4); break;
+        case RECORDTYPE_MKV: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mkv); break;
+        default: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv); break;
+    }
+    // The MKV / MP4 filters that were not added to the dialog are not owned by it
+    if (burst_mode) {
+        g_object_ref_sink(filter_mkv);
+        g_object_unref(filter_mkv);
+        g_object_ref_sink(filter_mp4);
+        g_object_unref(filter_mp4);
+    }
 
     g_free(path);
     g_free(filename);
@@ -454,6 +588,11 @@ RecordingType confirm_dataset_name(LrdViewer *viewer)  {
         } else {
             log_info("Unsupported video extension chosen : '%s'. Aborting recording.", extension);
             chosen_filetype = RECORDTYPE_NONE;
+        }
+        if (chosen_filetype != RECORDTYPE_NONE) {
+            settings_set_directory_of(SETTINGS_GROUP_VIDEO, filename);
+            if (video_type_setting_name(chosen_filetype) != NULL)
+                settings_set_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT, video_type_setting_name(chosen_filetype));
         }
         gtk_widget_destroy(dialog);
         g_free(filename); // 'extension' pointed into it
@@ -521,10 +660,15 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
 {
     if (type == ARV_STREAM_CALLBACK_TYPE_INIT) {
 
-        if (!arv_make_thread_high_priority (-19)) {
-            log_warning ("Failed to make stream thread high priority");
+        // As high as possible: the recording must not lose frames. If -19 is refused (usual without privileges),
+        // at least -10, so that the recording stream thread is never less favored than the video one.
+        if (arv_make_thread_high_priority (-19)) {
+            log_trace ("Made stream thread high priority (nice -19)");
+        } else if (arv_make_thread_high_priority (-10)) {
+            log_debug ("Stream thread priority: nice -19 refused, nice -10 used.");
+            log_info ("The recording stream thread could get a higher priority with higher privileges (e.g. running as administrator).");
         } else {
-            log_trace ("Made stream thread high priority");
+            log_warning ("Failed to make stream thread high priority");
         }
         if (!arv_make_thread_realtime (10)) {
             log_warning ("Failed to make stream thread realtime. Try running as administrator.");
@@ -580,9 +724,6 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
 
     guint32 running_number;
 
-    uint8_t *image_data;
-    size_t size;
-
     static gboolean show_this_frame = FALSE;
 
     arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
@@ -631,28 +772,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
                 clock_millis(clock_now_recording));        // computer time (ms)
 
-        // write image data
-        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-        if (viewer->show_roi) {
-            int width, height;
-            arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
-                // The roi is useless
-                fwrite(image_data, 1, size, imageFile);
-            } else if (width == viewer->roi_w) {
-                // The roi is used to constrain only in y
-                size_t offset = viewer->roi_y * width;
-                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
-            } else {
-                // general case
-                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = i_line * width + viewer->roi_x;
-                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
-                }
-            }
-        } else {
-            fwrite(image_data, 1, size, imageFile);
-        }
+        // write image data (the ROI only, if one is used)
+        write_recorded_region(imageFile, buffer);
 
         // Push back the buffer (in the right queue)
         if (clock_diff_millis(clock_now_recording, clock_last_snapshot_recording) * display_fps_recording > 1000) {
@@ -701,6 +822,7 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     if (!open_files(viewer))
         return FALSE;
 
+    prepare_recorded_region(viewer, FALSE);
     write_meta(viewer);
 
     // Create the stream
@@ -740,11 +862,16 @@ typedef struct {
 
 static const Mp4EncodingSettings mp4_encoding_settings = {"I420", "superfast", 18};
 
-// MP4 videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down (or
-// sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
+// MP4 and MKV videos are played at this fixed frame rate, whatever the capture frame rate: the video is slowed down
+// (or sped up). The capture frame rate and the slowdown factor are written in the metadata of the file.
 static const gint mp4_playback_fps = 30;
 
-// State of the current GStreamer (MP4/FLV) recording. Written by forward_buffer_to_gst (stream thread),
+// Whether the video file of this type is played at mp4_playback_fps, with the recording settings in its metadata
+static gboolean has_fixed_playback_rate (RecordingType record_type) {
+    return record_type == RECORDTYPE_MP4 || record_type == RECORDTYPE_MKV;
+}
+
+// State of the current GStreamer (MP4/MKV/FLV) recording. Written by forward_buffer_to_gst (stream thread),
 // read once the stream is stopped.
 static FrameNumbering gst_record_numbering;
 static guint64 gst_n_recorded_frames;
@@ -767,6 +894,10 @@ static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
     g_string_append_printf (text, "cameraRegionX=%d\ncameraRegionY=%d\ncameraRegionWidth=%d\ncameraRegionHeight=%d\n",
                             x, y, width, height);
     g_string_append_printf (text, "binningX=%d\nbinningY=%d\n", binning_x, binning_y);
+    // The recorded region (prepare_recorded_region), relative to the camera region
+    g_string_append_printf (text, "usingROI=%s\n", recorded_region.using_roi ? "true" : "false");
+    g_string_append_printf (text, "viewerRegionX=%d\nviewerRegionY=%d\nviewerRegionWidth=%d\nviewerRegionHeight=%d\n",
+                            recorded_region.x, recorded_region.y, recorded_region.width, recorded_region.height);
     g_string_append_printf (text, "captureFrequency=%f\n", gst_capture_frame_rate);
     g_string_append_printf (text, "playbackFrequency=%d\n", mp4_playback_fps);
     g_string_append_printf (text, "slowdownFactor=%f\n", gst_capture_frame_rate / mp4_playback_fps);
@@ -788,9 +919,9 @@ static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
     return g_string_free (text, FALSE);
 }
 
-// Writes the recording settings in the metadata (tags) of the MP4 file. Called when the recording starts, and
-// again when it stops ('final', with the frame counts): MP4 metadata are written at the end of the file.
-static void set_mp4_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
+// Writes the recording settings in the metadata (tags) of the MP4 / MKV file. Called when the recording starts, and
+// again when it stops ('final', with the frame counts): the muxers write the metadata at the end of the file.
+static void set_video_file_tags (LrdViewer *viewer, GstElement *muxer, gboolean final) {
     double slowdown = gst_capture_frame_rate / mp4_playback_fps;
     g_autofree char *description = g_strdup_printf ("Recorded at %.2f fps, played at %d fps (%.2fx %s)",
                                                     gst_capture_frame_rate, mp4_playback_fps,
@@ -842,7 +973,7 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
         viewer->last_buffer = g_object_ref( arv_buffer );
 
         GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
-        if (viewer->record_type == RECORDTYPE_MP4) {
+        if (has_fixed_playback_rate (viewer->record_type)) {
             // Fixed playback frame rate: frame n is shown at (n - 1) / playback fps. The running number follows the
             // camera frame counter, so a frame lost during the capture leaves a gap instead of shifting the video.
             GST_BUFFER_PTS (gst_buffer) = gst_util_uint64_scale (running_number - 1, GST_SECOND, mp4_playback_fps);
@@ -858,6 +989,26 @@ static GstPadLinkReturn link_pad_to_element (GstPad *src_pad, GstElement *elemen
     GstPadLinkReturn result = gst_pad_link (src_pad, sink_pad);
     gst_object_unref (sink_pad);
     return result;
+}
+
+// Links the tee to the first element of the recording branch, through a videocrop element if only a part of the
+// images is recorded (recorded_region). The frames are not rotated / flipped during recordings, so the region is in
+// image coordinates.
+static gboolean link_tee_to_recording_branch (LrdViewer *viewer, GstPad *tee_src_pad, GstElement *first) {
+    const RecordedRegion *r = &recorded_region;
+    if (!r->cropped)
+        return !GST_PAD_LINK_FAILED (link_pad_to_element (tee_src_pad, first));
+
+    GstElement *videocrop = gst_element_factory_make ("videocrop", NULL);
+    if (videocrop == NULL) {
+        log_error("The GStreamer element videocrop (gst-plugins-good) is missing: cannot record the ROI only.");
+        return FALSE;
+    }
+    g_object_set (G_OBJECT (videocrop),
+                  "left", r->x, "top", r->y,
+                  "right", r->fov_width - r->x - r->width, "bottom", r->fov_height - r->y - r->height, NULL);
+    gst_bin_add (GST_BIN (viewer->pipeline), videocrop);
+    return !GST_PAD_LINK_FAILED (link_pad_to_element (tee_src_pad, videocrop)) && gst_element_link (videocrop, first);
 }
 
 // jhfdejhgfuyswfiuse
@@ -975,8 +1126,9 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             gst_util_set_object_arg (G_OBJECT (x264enc), "pass", "qual");
             g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
+            prepare_recorded_region (viewer, TRUE);
             gst_capture_frame_rate = get_actual_frame_rate (viewer);
-            set_mp4_tags (viewer, mp4mux, FALSE);
+            set_video_file_tags (viewer, mp4mux, FALSE);
             filesink = gst_element_factory_make ("filesink", NULL);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
             g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
@@ -986,8 +1138,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL);
             // Linking the elements
-            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
-            if (GST_PAD_LINK_FAILED (link_success)) {
+            if (!link_tee_to_recording_branch (viewer, tee_record_src_pad, videoconvert_rec)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
@@ -997,34 +1148,58 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             }
             break;
         }
-        case RECORDTYPE_MKV:
-            log_warning("mkv encoding is still experimental. This might not work");
+        case RECORDTYPE_MKV: {
             /*
-             * MKV RECORDING
+             * MKV RECORDING (lossless)
              *
              * Record pipeline:
-             *  tee -> videoconvert -> avenc_ffv1 -> matroskamux -> filesink
+             *  tee -> capsfilter (BGRx/BGRA) -> queue -> avenc_ffv1 -> matroskamux -> filesink
+             *
+             * The frames reach the tee in the display format (BGRx or BGRA), which FFV1 encodes losslessly as it is:
+             * there is deliberately no videoconvert, so that no lossy conversion can be inserted.
              */
-            videoconvert_rec = gst_element_factory_make ("videoconvert", NULL);
+            GstElement *capsfilter = gst_element_factory_make ("capsfilter", NULL);
+            GstCaps *raw_caps = gst_caps_from_string ("video/x-raw, format=(string){ BGRx, BGRA }");
+            g_object_set (G_OBJECT (capsfilter), "caps", raw_caps, NULL);
+            gst_caps_unref (raw_caps);
+            queue = gst_element_factory_make ("queue", NULL);
             avenc_ffv1 = gst_element_factory_make ("avenc_ffv1", NULL);
             matroskamux = gst_element_factory_make ("matroskamux", NULL);
-            GstPad *matroskamux_sink_pad = gst_element_request_pad_simple (matroskamux, "video_%u");
             filesink = gst_element_factory_make ("filesink", NULL);
-            g_object_set (G_OBJECT(filesink), "location", filename, NULL);
-            g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
-
-            // Adding to the bin
-            gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
-            // Linking the elements
-            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
-            if (GST_PAD_LINK_FAILED (link_success)) {
-                log_debug("Link from the tee to the videoconvert_rec for recording failed.");
+            if (avenc_ffv1 == NULL || matroskamux == NULL) {
+                log_error("MKV recording needs the GStreamer elements avenc_ffv1 (gst-libav) and matroskamux "
+                          "(gst-plugins-good), which are not installed.");
+                arv_viewer_show_notification (viewer, "Cannot record MKV videos",
+                                              "The GStreamer FFV1 encoder (gst-libav) or Matroska muxer is missing.");
+                g_clear_pointer (&capsfilter, gst_object_unref);
+                g_clear_pointer (&queue, gst_object_unref);
+                g_clear_pointer (&avenc_ffv1, gst_object_unref);
+                g_clear_pointer (&matroskamux, gst_object_unref);
+                g_clear_pointer (&filesink, gst_object_unref);
                 return FALSE;
             }
-            gst_element_link_many (videoconvert_rec, avenc_ffv1, matroskamux, filesink, NULL);
-            // Getting rid of the sink pad
-            gst_object_unref (GST_OBJECT (matroskamux_sink_pad));
+            // One encoding thread per core: a single thread cannot follow high frame rates
+            g_object_set (G_OBJECT (avenc_ffv1), "threads", 0, NULL);
+            prepare_recorded_region (viewer, FALSE);
+            gst_capture_frame_rate = get_actual_frame_rate (viewer);
+            set_video_file_tags (viewer, matroskamux, FALSE);
+            g_object_set (G_OBJECT(filesink), "location", filename, NULL);
+            g_object_set(G_OBJECT(filesink), "sync", FALSE, NULL);
+            log_debug("MKV encoding: FFV1 (lossless), automatic number of threads");
+
+            // Adding to the bin
+            gst_bin_add_many (GST_BIN (viewer->pipeline), capsfilter, queue, avenc_ffv1, matroskamux, filesink, NULL);
+            // Linking the elements
+            if (!link_tee_to_recording_branch (viewer, tee_record_src_pad, capsfilter)) {
+                log_debug("Link from the tee to the capsfilter for recording failed.");
+                return FALSE;
+            }
+            if (!gst_element_link_many (capsfilter, queue, avenc_ffv1, matroskamux, filesink, NULL)) {
+                log_error("Could not build the MKV recording pipeline.");
+                return FALSE;
+            }
             break;
+        }
         case RECORDTYPE_AVI:
             log_warning("avi encoding is still experimental. This might not work");
             /*
@@ -1062,7 +1237,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
     gst_object_unref (GST_OBJECT (tee_record_src_pad));
 
-    if (viewer->record_type == RECORDTYPE_MP4)
+    if (has_fixed_playback_rate (viewer->record_type))
         start_display_pipeline (viewer, caps_string, mp4_playback_fps, 1);
     else
         start_display_pipeline (viewer, caps_string, 0, 1);
@@ -1122,6 +1297,7 @@ static gboolean bourrin_recording(void *data)
         return FALSE;
     }
 
+    prepare_recorded_region(viewer, FALSE);
     write_meta(viewer);
 
     // Create the stream
@@ -1151,9 +1327,6 @@ static gboolean bourrin_recording(void *data)
     FrameNumbering burst_numbering;
     frame_numbering_reset(&burst_numbering);
     guint32 running_number;
-
-    uint8_t *image_data;
-    size_t size;
 
     // Maximum time to wait for a frame before giving up: 10 s, or 10 frame periods if that is longer
     // (very low frame rates), so that a camera that stops sending cannot hang the application.
@@ -1195,28 +1368,8 @@ static gboolean bourrin_recording(void *data)
                 arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
                 clock_millis(clock_now_recording));       // computer time (ms)
 
-        // write image data
-        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-        if (viewer->show_roi) {
-            int width, height;
-            arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-            if (size == (size_t) viewer->roi_w * viewer->roi_h) {
-                // The roi is useless
-                fwrite(image_data, 1, size, imageFile);
-            } else if (width == viewer->roi_w) {
-                // The roi is used to constrain only in y
-                size_t offset = viewer->roi_y * width;
-                fwrite(image_data + offset, 1, viewer->roi_w * viewer->roi_h, imageFile);
-            } else {
-                // general case
-                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = i_line * width + viewer->roi_x;
-                    fwrite(image_data + offset, 1, viewer->roi_w, imageFile);
-                }
-            }
-        } else {
-            fwrite(image_data, 1, size, imageFile);
-        }
+        // write image data (the ROI only, if one is used)
+        write_recorded_region(imageFile, buffer);
         n_recorded_frames++;
 
         // Push back the buffer
@@ -1300,6 +1453,7 @@ gboolean start_recording (LrdViewer *viewer) {
                 break;
             case RECORDTYPE_FLV:
             case RECORDTYPE_MP4:
+            case RECORDTYPE_MKV:
                 stop_video(viewer);
                 successful_launch *= setup_video_display_for_gstreamer_recording(viewer);
                 if (successful_launch) {
@@ -1384,11 +1538,11 @@ void stop_recording (LrdViewer *viewer) {
     // is still being written (record_buffer runs in that thread) when the files are closed below.
     g_clear_object (&viewer->stream);
 
-    // MP4: complete the metadata with the frame counts (the muxer writes them at the end of the file)
-    if (viewer->record_type == RECORDTYPE_MP4 && GST_IS_BIN (viewer->pipeline)) {
+    // MP4 / MKV: complete the metadata with the frame counts (the muxer writes them at the end of the file)
+    if (has_fixed_playback_rate (viewer->record_type) && GST_IS_BIN (viewer->pipeline)) {
         GstElement *muxer = gst_bin_get_by_interface (GST_BIN (viewer->pipeline), GST_TYPE_TAG_SETTER);
         if (muxer != NULL) {
-            set_mp4_tags (viewer, muxer, TRUE);
+            set_video_file_tags (viewer, muxer, TRUE);
             gst_object_unref (muxer);
         }
     }

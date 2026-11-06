@@ -29,6 +29,7 @@ void help(LrdViewer *viewer) {
         printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
         printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
         printf("arrows (keypad) .... Move ROI as a whole                                        \n");
+        printf("mouse drag ......... Draw a new ROI (in ROI mode)                               \n");
         printf("c .................. Crop to the Region Of Interest                             \n");
     }
         printf("%s*** Video Acquisition ***%s                                                   \n", tcMAG, tcNRM);
@@ -69,15 +70,17 @@ void setup_help_popover (LrdViewer *viewer) {
                                                          "e,s,d,f \t\t(E,S,D,F)\n"
                                                          "i,j,k,l \t\t(I,J,K,L)\n"
                                                          "↑←↓→ \t(keypad)\n"
+                                                         "mouse drag\n"
                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
-                                                                  "Zoom at the center of the FOV\n"
+                                                                  "Zoom in (x2)\n"
                                                                   "Zoom out (x2)\n"
                                                                  "Toggle Region Of Interest mode\n"
                                                                  "Move upper left corner of ROI\n"
                                                                  "Move lower right corner of ROI\n"
                                                                  "Move ROI as a whole\n"
+                                                                 "Draw a new ROI (in ROI mode)\n"
                                                                  "Crop to the Region Of Interest");
     // VIDEO ACQU
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_4), "<b>Video Acquisition</b>\n"
@@ -87,13 +90,15 @@ void setup_help_popover (LrdViewer *viewer) {
 }
 
 // ROI MANIPULATION
+// The ROI is drawn as an overlay, whatever the pixel format. But GCV recordings crop the images to the ROI byte by
+// byte, which needs a whole number of bytes per pixel (not possible with packed formats such as Mono12Packed).
 gboolean is_roi_possible(LrdViewer *viewer) {
     const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-    if (pixel_format == ARV_PIXEL_FORMAT_MONO_8) {
+    if (ARV_PIXEL_FORMAT_BIT_PER_PIXEL (pixel_format) % 8 == 0) {
         return TRUE;
     } else {
-        log_warning("This pixel format (%s) do not allow for ROI utilization (yet!). Use Mono8 instead.", caps_string);
+        log_warning("The ROI cannot be used with a packed pixel format (%s).",
+                    arv_camera_get_pixel_format_as_string (viewer->camera, NULL));
         return FALSE;
     }
 }
@@ -148,6 +153,7 @@ void toggle_roi(LrdViewer *viewer) {
         viewer->show_roi = !(viewer->show_roi);
     constrain_roi(viewer);
     update_status_bar_cb(viewer);
+    overlay_queue_redraw(viewer);
 }
 
 // ROI MOVEMENT
@@ -167,6 +173,7 @@ void move_roi_whole(LrdViewer *viewer, enum roiMovementDirection direction, enum
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -183,6 +190,7 @@ void move_roi_lower_right_corner(LrdViewer *viewer, enum roiMovementDirection di
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -203,6 +211,7 @@ void move_roi_upper_left_corner(LrdViewer *viewer, enum roiMovementDirection dir
         }
         constrain_roi(viewer);
         update_status_bar_cb(viewer);
+        overlay_queue_redraw(viewer);
     }
 }
 
@@ -371,18 +380,55 @@ void zoomin(LrdViewer *viewer) {
     arv_camera_get_region (viewer->camera, &old_x, &old_y, &old_w, &old_h, NULL);
     log_trace("Old region: x: %d ; y: %d ; w: %d ; h: %d", old_x, old_y, old_w, old_h);
 
+    // The ROI in use, in absolute (sensor) coordinates
+    gboolean const using_ROI = viewer->show_roi;
+    int const old_roi_x = old_x + viewer->roi_x;
+    int const old_roi_y = old_y + viewer->roi_y;
+    int const old_roi_w = viewer->roi_w;
+    int const old_roi_h = viewer->roi_h;
+    log_trace("Old ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+
+    // The new field of view: the central half of the old one
     viewer->roi_x = old_w/4;
     viewer->roi_y = old_h/4;
     viewer->roi_w = old_w/2;
     viewer->roi_h = old_h/2;
 
-    log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    log_trace("Zoom window: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
 
     viewer->show_roi = gtk_true();
 
     crop_to_roi(viewer);
 
     viewer->show_roi = gtk_false();
+
+    if (using_ROI && is_roi_possible(viewer)) {
+        // ROI mode stays: the new ROI is the part of the old ROI inside the new field of view,
+        // or the whole new field of view if they do not overlap
+        gint new_x, new_y, new_w, new_h;
+        arv_camera_get_region (viewer->camera, &new_x, &new_y, &new_w, &new_h, NULL);
+        int const left = MAX (old_roi_x, new_x);
+        int const top = MAX (old_roi_y, new_y);
+        int const right = MIN (old_roi_x + old_roi_w, new_x + new_w);
+        int const bottom = MIN (old_roi_y + old_roi_h, new_y + new_h);
+        if (right > left && bottom > top) {
+            viewer->roi_x = left - new_x;
+            viewer->roi_y = top - new_y;
+            viewer->roi_w = right - left;
+            viewer->roi_h = bottom - top;
+        } else {
+            log_debug("The old ROI is outside the new field of view: the ROI is the whole field of view.");
+            viewer->roi_x = 0;
+            viewer->roi_y = 0;
+            viewer->roi_w = new_w;
+            viewer->roi_h = new_h;
+        }
+        constrain_roi(viewer);
+        viewer->show_roi = gtk_true();
+        log_trace("New ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    }
+    overlay_queue_redraw(viewer);
+    update_status_bar_cb(viewer);
 
     log_trace("====== ZOOM End");
 }
@@ -439,16 +485,25 @@ void zoomout(LrdViewer *viewer) {
 
     viewer->show_roi = gtk_false();
 
-    if (using_ROI && is_roi_possible(viewer)) {
-        // Same place in the image: the old ROI was relative to the old region
+    if (is_roi_possible(viewer)) {
+        // Same place in the image (the old ROI was relative to the old region). Without a ROI, like 'a', the ROI is
+        // the old field of view.
         gint new_x, new_y;
         arv_camera_get_region (viewer->camera, &new_x, &new_y, NULL, NULL, NULL);
-        viewer->roi_x = old_roi_x + old_x - new_x;
-        viewer->roi_y = old_roi_y + old_y - new_y;
-        viewer->roi_w = old_roi_w;
-        viewer->roi_h = old_roi_h;
+        if (using_ROI) {
+            viewer->roi_x = old_roi_x + old_x - new_x;
+            viewer->roi_y = old_roi_y + old_y - new_y;
+            viewer->roi_w = old_roi_w;
+            viewer->roi_h = old_roi_h;
+        } else {
+            viewer->roi_x = old_x - new_x;
+            viewer->roi_y = old_y - new_y;
+            viewer->roi_w = old_w;
+            viewer->roi_h = old_h;
+        }
         constrain_roi(viewer);
         viewer->show_roi = gtk_true();
+        log_trace("Final ROI: x: %d ; y: %d ; w: %d ; h: %d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
     }
 
     log_trace("====== UNZOOM End");
@@ -456,22 +511,16 @@ void zoomout(LrdViewer *viewer) {
 
 // TOGGLE GRID (g)
 void toggle_grid(LrdViewer *viewer) {
-    if (viewer->grid_type == GRID_NOGRID) {
-        viewer->grid_type = GRID_HORIZONTAL;
-    } else if (viewer->grid_type == GRID_HORIZONTAL) {
-        viewer->grid_type = GRID_BOTH;
-    } else if (viewer->grid_type == GRID_BOTH) {
-        viewer->grid_type = GRID_VERTICAL;
-    } else if (viewer->grid_type == GRID_VERTICAL) {
-        viewer->grid_type = GRID_NOGRID;
+    // nothing -> horizontal -> vertical -> both -> crosshair -> nothing
+    switch (viewer->grid_type) {
+        case GRID_NOGRID: viewer->grid_type = GRID_HORIZONTAL; break;
+        case GRID_HORIZONTAL: viewer->grid_type = GRID_VERTICAL; break;
+        case GRID_VERTICAL: viewer->grid_type = GRID_BOTH; break;
+        case GRID_BOTH: viewer->grid_type = GRID_CROSSHAIR; break;
+        default: viewer->grid_type = GRID_NOGRID; break;
     }
     log_debug("Switched to a new grid : %d.", (int) viewer->grid_type);
-
-    const ArvPixelFormat pixel_format = arv_camera_get_pixel_format (viewer->camera, NULL);
-    if (pixel_format != ARV_PIXEL_FORMAT_MONO_8) {
-        const char *caps_string = arv_pixel_format_to_gst_caps_string (pixel_format);
-        printf("This pixel format (%s) do not allow for grid utilization (yet!). Use Mono8 instead.", caps_string);
-    }
+    overlay_queue_redraw(viewer);
 }
 
 // CHANGE EXPOSURE (+/-/Pg Up/Pg Down)
