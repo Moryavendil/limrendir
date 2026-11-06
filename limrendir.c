@@ -548,6 +548,9 @@ startup (GApplication *application)
 static void
 finalize (GObject *object)
 {
+	LrdViewer *viewer = (LrdViewer *) object;
+	forget_displayed_frame (viewer);
+	g_mutex_clear (&viewer->last_frame_mutex);
 	G_OBJECT_CLASS (arv_viewer_parent_class)->finalize (object);
 }
 
@@ -579,6 +582,7 @@ arv_viewer_init (LrdViewer *viewer)
 	viewer->frame_retention = 100;
 	viewer->register_cache_policy = ARV_REGISTER_CACHE_POLICY_DEFAULT;
 	viewer->range_check_policy = ARV_RANGE_CHECK_POLICY_DEFAULT;
+	g_mutex_init (&viewer->last_frame_mutex);
 }
 
 static void

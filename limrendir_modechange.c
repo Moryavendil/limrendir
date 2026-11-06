@@ -333,43 +333,41 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     SnapshotFormat default_format;
     GtkWidget *dialog;
     GstSample *sample = NULL;
-    ArvBuffer *buffer = NULL;
+    LrdFrame *frame = NULL;
     char *path;
     char *filename;
     GDateTime *date;
     char *date_string;
     int width, height;
-    g_autofree char *data = NULL;
     const char *pixel_format;
-    size_t size = 0;
     gint result;
 
     if (GST_IS_ELEMENT (viewer->videosink))
         sample = gst_base_sink_get_last_sample (GST_BASE_SINK (viewer->videosink));
-    if (ARV_IS_BUFFER (viewer->last_buffer))
-        buffer = g_object_ref (viewer->last_buffer);
+    // A copy of the raw data, taken now: it does not change while the dialog is open
+    frame = get_displayed_frame_copy (viewer);
 
-    if (!ARV_IS_BUFFER (buffer) && !GST_IS_SAMPLE (sample)) {
+    if (frame == NULL && !GST_IS_SAMPLE (sample)) {
         arv_viewer_show_notification (viewer, "No buffer available", NULL);
         return;
     }
 
-    g_return_if_fail (ARV_IS_CAMERA (viewer->camera));
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        g_clear_pointer (&sample, gst_sample_unref);
+        g_clear_pointer (&frame, lrd_frame_free);
+        return;
+    }
 
     pixel_format = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
-    arv_buffer_get_image_region (buffer, NULL, NULL, &width, &height);
-    // Copy the raw data now: the stream may reuse the buffer memory while the dialog is open
-    if (ARV_IS_BUFFER (buffer)) {
-        const void *buffer_data = arv_buffer_get_data (buffer, &size);
-        data = g_memdup2 (buffer_data, size);
-    }
+    width = frame != NULL ? frame->width : 0;
+    height = frame != NULL ? frame->height : 0;
 
     date = g_date_time_new_now_local ();
     date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
     // Default format: the one of the last saved snapshot if it can be used here,
     // else PNG (a viewable image), or RAW if only the camera buffer is available
     default_format = _snapshot_remembered_format ();
-    if (default_format == SNAPSHOT_FORMAT_RAW ? !ARV_IS_BUFFER (buffer)
+    if (default_format == SNAPSHOT_FORMAT_RAW ? !(frame != NULL)
                                               : (default_format == SNAPSHOT_FORMAT_NONE || !GST_IS_SAMPLE (sample)))
         default_format = GST_IS_SAMPLE (sample) ? SNAPSHOT_FORMAT_PNG : SNAPSHOT_FORMAT_RAW;
     filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s%s",
@@ -411,7 +409,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
                                             "image/jpeg", NULL, SNAPSHOT_FORMAT_JPEG);
     }
 
-    if (ARV_IS_BUFFER (buffer)) {
+    if ((frame != NULL)) {
         filter_raw = _snapshot_add_filter (GTK_FILE_CHOOSER (dialog), filter_all, "Raw images (*.raw)",
                                            NULL, "*.raw", SNAPSHOT_FORMAT_RAW);
     }
@@ -464,8 +462,8 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
             success = _save_gst_sample_to_file (sample, filename, "image/png", NULL);
         } else if (GST_IS_SAMPLE (sample) && format == SNAPSHOT_FORMAT_JPEG) {
             success = _save_gst_sample_to_file (sample, filename, "image/jpeg", NULL);
-        } else if (ARV_IS_BUFFER (buffer)) {
-            success = g_file_set_contents (filename, data, size, &error);
+        } else if (frame != NULL) {
+            success = g_file_set_contents (filename, (const char *) frame->data, frame->size, &error);
         }
 
         if (success) {
@@ -481,7 +479,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
 
     gtk_widget_destroy (dialog);
     g_clear_pointer (&sample, gst_sample_unref);
-    g_clear_object (&buffer);
+    g_clear_pointer (&frame, lrd_frame_free);
 }
 
 

@@ -96,13 +96,25 @@ typedef enum {
 } RecordingType;
 
 
+// A camera frame copied out of its stream buffer
+typedef struct {
+    guint8 *data; // NULL if there is no frame
+    size_t size;
+    gint width;
+    gint height;
+    ArvPixelFormat pixel_format;
+} LrdFrame;
+
 struct  _LrdViewer {
     GtkApplication parent_instance;
 
     ArvCamera *camera;
     char *camera_name;
     ArvStream *stream;
-    ArvBuffer *last_buffer;
+    // Copy of the last frame sent to the display (the stream reuses the buffers): see remember_displayed_frame
+    GMutex last_frame_mutex;
+    LrdFrame last_frame;
+    gint64 last_frame_time_us;
 
     GstElement *pipeline;
     GstElement *appsrc;
@@ -515,6 +527,14 @@ void configure_stream (LrdViewer *viewer);
 
 // Gives n new full-frame buffers to the stream
 gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream);
+// Keeps a copy of a (successful) frame sent to the display, for the status bar statistics and the snapshots.
+// Called by the thread that sends the frames to the display; never waits for the main thread.
+void remember_displayed_frame (LrdViewer *viewer, ArvBuffer *buffer);
+// Forgets the last displayed frame (when the video stops)
+void forget_displayed_frame (LrdViewer *viewer);
+// Returns a copy of the last displayed frame (free with lrd_frame_free), or NULL if there is none
+LrdFrame *get_displayed_frame_copy (LrdViewer *viewer);
+void lrd_frame_free (LrdFrame *frame);
 void push_new_buffers (LrdViewer *viewer, unsigned n);
 
 // Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure

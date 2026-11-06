@@ -196,8 +196,7 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
         if (clock_diff_millis(clock_now_streaming, clock_last_snapshot_streaming) * display_fps_streaming > 1000
             && can_display_buffer (viewer, stream)) {
             clock_last_snapshot_streaming = clock_now_streaming;
-            g_clear_object(&viewer->last_buffer);
-            viewer->last_buffer = g_object_ref(arv_buffer);
+            remember_displayed_frame (viewer, arv_buffer);
             gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(arv_buffer, stream, viewer));
         } else {
             arv_stream_push_buffer(stream, arv_buffer);
@@ -272,6 +271,67 @@ void configure_stream (LrdViewer *viewer)
         // These are network (GigE Vision) settings; they have no equivalent for USB3 Vision or fake cameras
         log_debug("Not a GigE Vision stream: socket buffer, packet resend and timeout settings do not apply.");
     }
+}
+
+// LAST DISPLAYED FRAME
+// The display releases a stream buffer as soon as it has converted it, and the stream then refills it: the last
+// displayed frame is therefore copied, for the status bar statistics and the snapshots.
+
+// Minimum time between two copies (the MP4 and MKV recordings send every frame to GStreamer)
+#define LRD_LAST_FRAME_MIN_INTERVAL_US 20000
+
+void remember_displayed_frame (LrdViewer *viewer, ArvBuffer *buffer)
+{
+    gint64 const now_us = g_get_monotonic_time ();
+    if (viewer->last_frame.data != NULL && now_us - viewer->last_frame_time_us < LRD_LAST_FRAME_MIN_INTERVAL_US)
+        return;
+    // The main thread is reading the last frame: keep it, the next frames will be remembered
+    if (!g_mutex_trylock (&viewer->last_frame_mutex))
+        return;
+
+    size_t size = 0;
+    const void *data = arv_buffer_get_data (buffer, &size);
+    if (data != NULL && size > 0) {
+        if (viewer->last_frame.size != size) {
+            g_free (viewer->last_frame.data);
+            viewer->last_frame.data = g_malloc (size);
+            viewer->last_frame.size = size;
+        }
+        memcpy (viewer->last_frame.data, data, size);
+        arv_buffer_get_image_region (buffer, NULL, NULL, &viewer->last_frame.width, &viewer->last_frame.height);
+        viewer->last_frame.pixel_format = arv_buffer_get_image_pixel_format (buffer);
+        viewer->last_frame_time_us = now_us;
+    }
+    g_mutex_unlock (&viewer->last_frame_mutex);
+}
+
+void forget_displayed_frame (LrdViewer *viewer)
+{
+    g_mutex_lock (&viewer->last_frame_mutex);
+    g_clear_pointer (&viewer->last_frame.data, g_free);
+    viewer->last_frame.size = 0;
+    g_mutex_unlock (&viewer->last_frame_mutex);
+}
+
+LrdFrame *get_displayed_frame_copy (LrdViewer *viewer)
+{
+    LrdFrame *copy = NULL;
+    g_mutex_lock (&viewer->last_frame_mutex);
+    if (viewer->last_frame.data != NULL) {
+        copy = g_new (LrdFrame, 1);
+        *copy = viewer->last_frame;
+        copy->data = g_memdup2 (viewer->last_frame.data, viewer->last_frame.size);
+    }
+    g_mutex_unlock (&viewer->last_frame_mutex);
+    return copy;
+}
+
+void lrd_frame_free (LrdFrame *frame)
+{
+    if (frame == NULL)
+        return;
+    g_free (frame->data);
+    g_free (frame);
 }
 
 // Maximum number of the stream buffers that the display may hold at the same time
@@ -488,7 +548,7 @@ void stop_video (LrdViewer *viewer)
     viewer->appsrc = NULL;
 
 //    log_trace("    Destroying last buffer.");
-    g_clear_object (&viewer->last_buffer);
+    forget_displayed_frame (viewer);
 
 //    log_trace("    Stopping camera.");
     if (ARV_IS_CAMERA (viewer->camera))
@@ -541,19 +601,15 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
 // Text "(dark %) min – max (saturated %)" of the last frame, or NULL. In ROI mode, only the ROI is considered.
 // For mono formats of more than 8 bits (Mono10, Mono12, Mono12p...), values are pixel values (0 - 4095 for Mono12).
 // For the other formats, values are bytes: meaningful for 8-bit pixel formats.
-static char *saturation_text (LrdViewer *viewer)
+static char *frame_saturation_text (LrdViewer *viewer, const LrdFrame *frame)
 {
-    if (viewer->last_buffer == NULL)
-        return NULL;
-
-    size_t buffer_size;
-    const uint8_t *data = arv_buffer_get_data (viewer->last_buffer, &buffer_size);
+    size_t const buffer_size = frame->size;
+    const uint8_t *data = frame->data;
     if (data == NULL || buffer_size == 0)
         return NULL;
 
-    gint width = 0, height = 0;
-    arv_buffer_get_image_region (viewer->last_buffer, NULL, NULL, &width, &height);
-    ArvPixelFormat const pixel_format = arv_buffer_get_image_pixel_format (viewer->last_buffer);
+    gint const width = frame->width, height = frame->height;
+    ArvPixelFormat const pixel_format = frame->pixel_format;
     guint const high_bits = mono_high_bit_depth (pixel_format);
 
     // The values considered: bytes (8-bit formats) or 16-bit pixel values (high bit depth mono formats)
@@ -607,6 +663,15 @@ static char *saturation_text (LrdViewer *viewer)
     double const n_values = (double) row_values * n_rows;
     return g_strdup_printf ("(%.2f %%) %u – %u (%.2f %%)", 100 * n_dark / n_values, value_min, value_max,
                             100 * n_saturated / n_values);
+}
+
+static char *saturation_text (LrdViewer *viewer)
+{
+    // Read under the lock, without copying: meanwhile, the displayed frames are not remembered
+    g_mutex_lock (&viewer->last_frame_mutex);
+    char *text = frame_saturation_text (viewer, &viewer->last_frame);
+    g_mutex_unlock (&viewer->last_frame_mutex);
+    return text;
 }
 
 gboolean update_status_bar_cb (void *data)
