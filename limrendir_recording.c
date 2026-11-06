@@ -666,7 +666,7 @@ void stream_record_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *b
             log_trace ("Made stream thread high priority (nice -19)");
         } else if (arv_make_thread_high_priority (-10)) {
             log_debug ("Stream thread priority: nice -19 refused, nice -10 used.");
-            log_info ("The recording stream thread could get a higher priority with higher privileges (e.g. running as administrator).");
+            log_info ("The recording stream thread could get a higher priority with higher privileges.");
         } else {
             log_warning ("Failed to make stream thread high priority");
         }
@@ -782,8 +782,7 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         }
         // (if the display holds too many buffers, the frame is not shown and the next one will be)
         if (show_this_frame && can_display_buffer (viewer, stream)) {
-            g_clear_object(&viewer->last_buffer);
-            viewer->last_buffer = g_object_ref(buffer);
+            remember_displayed_frame (viewer, buffer);
             gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(buffer, stream, viewer));
             show_this_frame = FALSE;
         } else {
@@ -969,8 +968,7 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
         gst_last_running_number = running_number;
         gst_n_recorded_frames++;
 
-        g_clear_object( &viewer->last_buffer );
-        viewer->last_buffer = g_object_ref( arv_buffer );
+        remember_displayed_frame (viewer, arv_buffer);
 
         GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
         if (has_fixed_playback_rate (viewer->record_type)) {

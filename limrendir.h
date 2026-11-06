@@ -26,7 +26,7 @@
 
 G_BEGIN_DECLS
 
-#define LIMRENDIR_VERSION "0.8.1"
+#define LIMRENDIR_VERSION "0.8.2"
 
 typedef struct	_LrdViewer	LrdViewer;
 
@@ -73,7 +73,8 @@ extern const int gc_option_y_offset_default;
 void                limrendir_set_options       (LrdViewer *viewer,
                                                  gboolean lrd_option_gevcapture_mode,
                                                  char *lrd_option_dataset_name,
-                                                 gboolean lrd_option_create_fake_camera);
+                                                 gboolean lrd_option_create_fake_camera,
+                                                 gboolean lrd_option_allow_duplicates);
 
 // GRID DRAWING
 typedef enum {
@@ -95,13 +96,25 @@ typedef enum {
 } RecordingType;
 
 
+// A camera frame copied out of its stream buffer
+typedef struct {
+    guint8 *data; // NULL if there is no frame
+    size_t size;
+    gint width;
+    gint height;
+    ArvPixelFormat pixel_format;
+} LrdFrame;
+
 struct  _LrdViewer {
     GtkApplication parent_instance;
 
     ArvCamera *camera;
     char *camera_name;
     ArvStream *stream;
-    ArvBuffer *last_buffer;
+    // Copy of the last frame sent to the display (the stream reuses the buffers): see remember_displayed_frame
+    GMutex last_frame_mutex;
+    LrdFrame last_frame;
+    gint64 last_frame_time_us;
 
     GstElement *pipeline;
     GstElement *appsrc;
@@ -227,8 +240,9 @@ struct  _LrdViewer {
     gint n_display_skips; // frames not displayed to keep buffers for the stream (atomic: stream thread)
     guint last_n_display_skips;
 
-    // Number of buffers given to the current stream
-    unsigned n_stream_buffers;
+    // Number of stream buffers sent to the display and not yet released by GStreamer
+    // (atomic: changed by the stream thread and the GStreamer threads)
+    gint n_display_buffers;
 
     guint recording_snapshots_update_event;
 
@@ -243,6 +257,8 @@ struct  _LrdViewer {
 
     // Arecorder settings
     gboolean gevcapture_mode;
+    // Show the GenTL entries of the cameras also seen by Aravis' own USB3 Vision interface
+    gboolean allow_duplicates;
     char *dataset_name;
 
     // GevCapture settings
@@ -511,6 +527,14 @@ void configure_stream (LrdViewer *viewer);
 
 // Gives n new full-frame buffers to the stream
 gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream);
+// Keeps a copy of a (successful) frame sent to the display, for the status bar statistics and the snapshots.
+// Called by the thread that sends the frames to the display; never waits for the main thread.
+void remember_displayed_frame (LrdViewer *viewer, ArvBuffer *buffer);
+// Forgets the last displayed frame (when the video stops)
+void forget_displayed_frame (LrdViewer *viewer);
+// Returns a copy of the last displayed frame (free with lrd_frame_free), or NULL if there is none
+LrdFrame *get_displayed_frame_copy (LrdViewer *viewer);
+void lrd_frame_free (LrdFrame *frame);
 void push_new_buffers (LrdViewer *viewer, unsigned n);
 
 // Creates the acquisition stream of the camera, or returns NULL (and tells the user) on failure

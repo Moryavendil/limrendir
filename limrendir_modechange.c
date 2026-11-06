@@ -32,12 +32,13 @@ static void check_usbfs_memory (void)
     }
 
     log_warning("The USB memory limit is low (usbfs_memory_mb = %" G_GUINT64_FORMAT " MB): "
-                "USB3 cameras may lose frames at high frame rates.", usbfs_memory_mb);
-    log_info("To raise USB memory limit until next reboot: "
-                "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
-    log_info("To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
-                "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
-                USBFS_MEMORY_MB_RECOMMENDED);
+                "USB3 cameras may lose frames.", usbfs_memory_mb);
+    log_info("To raise USB memory limit, see README.md - Troubleshooting - Missing frames.");
+    // log_info("To raise USB memory limit until next reboot: "
+                // "sudo sh -c 'echo %d > " USBFS_MEMORY_MB_PATH "'", USBFS_MEMORY_MB_RECOMMENDED);
+    // log_info("To make it permanent, add usbcore.usbfs_memory_mb=%d to the kernel command line "
+                // "(e.g. GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then sudo update-grub).",
+                // USBFS_MEMORY_MB_RECOMMENDED);
 }
 
 // MODE CHANGE
@@ -332,43 +333,41 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
     SnapshotFormat default_format;
     GtkWidget *dialog;
     GstSample *sample = NULL;
-    ArvBuffer *buffer = NULL;
+    LrdFrame *frame = NULL;
     char *path;
     char *filename;
     GDateTime *date;
     char *date_string;
     int width, height;
-    g_autofree char *data = NULL;
     const char *pixel_format;
-    size_t size = 0;
     gint result;
 
     if (GST_IS_ELEMENT (viewer->videosink))
         sample = gst_base_sink_get_last_sample (GST_BASE_SINK (viewer->videosink));
-    if (ARV_IS_BUFFER (viewer->last_buffer))
-        buffer = g_object_ref (viewer->last_buffer);
+    // A copy of the raw data, taken now: it does not change while the dialog is open
+    frame = get_displayed_frame_copy (viewer);
 
-    if (!ARV_IS_BUFFER (buffer) && !GST_IS_SAMPLE (sample)) {
+    if (frame == NULL && !GST_IS_SAMPLE (sample)) {
         arv_viewer_show_notification (viewer, "No buffer available", NULL);
         return;
     }
 
-    g_return_if_fail (ARV_IS_CAMERA (viewer->camera));
+    if (!ARV_IS_CAMERA (viewer->camera)) {
+        g_clear_pointer (&sample, gst_sample_unref);
+        g_clear_pointer (&frame, lrd_frame_free);
+        return;
+    }
 
     pixel_format = arv_camera_get_pixel_format_as_string (viewer->camera, NULL);
-    arv_buffer_get_image_region (buffer, NULL, NULL, &width, &height);
-    // Copy the raw data now: the stream may reuse the buffer memory while the dialog is open
-    if (ARV_IS_BUFFER (buffer)) {
-        const void *buffer_data = arv_buffer_get_data (buffer, &size);
-        data = g_memdup2 (buffer_data, size);
-    }
+    width = frame != NULL ? frame->width : 0;
+    height = frame != NULL ? frame->height : 0;
 
     date = g_date_time_new_now_local ();
     date_string = g_date_time_format (date, "%Y-%m-%d_%H-%M-%S");
     // Default format: the one of the last saved snapshot if it can be used here,
     // else PNG (a viewable image), or RAW if only the camera buffer is available
     default_format = _snapshot_remembered_format ();
-    if (default_format == SNAPSHOT_FORMAT_RAW ? !ARV_IS_BUFFER (buffer)
+    if (default_format == SNAPSHOT_FORMAT_RAW ? !(frame != NULL)
                                               : (default_format == SNAPSHOT_FORMAT_NONE || !GST_IS_SAMPLE (sample)))
         default_format = GST_IS_SAMPLE (sample) ? SNAPSHOT_FORMAT_PNG : SNAPSHOT_FORMAT_RAW;
     filename = g_strdup_printf ("%s-%s-%d-%d-%s-%s%s",
@@ -410,7 +409,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
                                             "image/jpeg", NULL, SNAPSHOT_FORMAT_JPEG);
     }
 
-    if (ARV_IS_BUFFER (buffer)) {
+    if ((frame != NULL)) {
         filter_raw = _snapshot_add_filter (GTK_FILE_CHOOSER (dialog), filter_all, "Raw images (*.raw)",
                                            NULL, "*.raw", SNAPSHOT_FORMAT_RAW);
     }
@@ -463,8 +462,8 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
             success = _save_gst_sample_to_file (sample, filename, "image/png", NULL);
         } else if (GST_IS_SAMPLE (sample) && format == SNAPSHOT_FORMAT_JPEG) {
             success = _save_gst_sample_to_file (sample, filename, "image/jpeg", NULL);
-        } else if (ARV_IS_BUFFER (buffer)) {
-            success = g_file_set_contents (filename, data, size, &error);
+        } else if (frame != NULL) {
+            success = g_file_set_contents (filename, (const char *) frame->data, frame->size, &error);
         }
 
         if (success) {
@@ -480,7 +479,7 @@ void snapshot_cb (GtkButton *button, LrdViewer *viewer)
 
     gtk_widget_destroy (dialog);
     g_clear_pointer (&sample, gst_sample_unref);
-    g_clear_object (&buffer);
+    g_clear_pointer (&frame, lrd_frame_free);
 }
 
 
@@ -505,6 +504,40 @@ void switch_to_camera_list_cb (GtkToolButton *button, LrdViewer *viewer)
     select_mode (viewer, TRN_VIEWER_MODE_CAMERA_LIST);
 }
 
+// Returns TRUE if the device of this id is listed by the GenTL interface (a camera driver of another vendor,
+// e.g. Basler pylon, found through GENICAM_GENTL64_PATH) while Aravis' own USB3 Vision interface also lists a
+// camera with the same serial number. The same camera then appears twice, and only one entry can be opened.
+// 'uv_id' (if not NULL) is set to the id of the USB3 Vision entry.
+static gboolean is_gentl_duplicate_of_uv_camera (const char *device_id, const char **uv_id)
+{
+#ifdef ARV_GENTL_INTERFACE_H // The GenTL interface exists since Aravis 0.9
+    // Both interface lists were updated by arv_update_device_list
+    ArvInterface *gentl = arv_gentl_interface_get_instance ();
+    ArvInterface *uv = arv_uv_interface_get_instance ();
+    if (gentl == NULL || uv == NULL || device_id == NULL)
+        return FALSE;
+
+    for (unsigned int i = 0; i < arv_interface_get_n_devices (gentl); i++) {
+        if (g_strcmp0 (arv_interface_get_device_id (gentl, i), device_id) != 0)
+            continue;
+        if (g_strcmp0 (arv_interface_get_device_protocol (gentl, i), "USB3Vision") != 0)
+            return FALSE;
+        const char *serial = arv_interface_get_device_serial_nbr (gentl, i);
+        if (serial == NULL || serial[0] == '\0')
+            return FALSE;
+        for (unsigned int j = 0; j < arv_interface_get_n_devices (uv); j++) {
+            if (g_strcmp0 (arv_interface_get_device_serial_nbr (uv, j), serial) == 0) {
+                if (uv_id != NULL)
+                    *uv_id = arv_interface_get_device_id (uv, j);
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+#endif
+    return FALSE;
+}
+
 // update the camera list
 void update_device_list_cb (GtkToolButton *button, LrdViewer *viewer)
 {
@@ -524,6 +557,13 @@ void update_device_list_cb (GtkToolButton *button, LrdViewer *viewer)
     n_devices = arv_get_n_devices ();
     for (i = 0; i < n_devices; i++) {
         GString *protocol;
+        const char *uv_id = NULL;
+
+        if (!viewer->allow_duplicates && is_gentl_duplicate_of_uv_camera (arv_get_device_id (i), &uv_id)) {
+            log_debug ("Not listing '%s': it is the GenTL entry of the USB3 Vision camera '%s'"
+                       " (use --allow-duplicates to list it).", arv_get_device_id (i), uv_id);
+            continue;
+        }
 
         protocol = g_string_new (NULL);
         g_string_append_printf (protocol, "aravis-%s-symbolic", arv_get_device_protocol (i));

@@ -257,12 +257,14 @@ void
 limrendir_set_options (LrdViewer *viewer,
                        gboolean lrd_option_gevcapture_mode,
                        char *lrd_option_dataset_name,
-                       gboolean lrd_option_create_fake_camera) {
+                       gboolean lrd_option_create_fake_camera,
+                       gboolean lrd_option_allow_duplicates) {
     g_return_if_fail (viewer != NULL);
 
     viewer->gevcapture_mode = lrd_option_gevcapture_mode;
     viewer->dataset_name = g_strdup (lrd_option_dataset_name);
     create_fake_camera = lrd_option_create_fake_camera;
+    viewer->allow_duplicates = lrd_option_allow_duplicates;
 }
 
 // NOTIFICATION
@@ -501,8 +503,8 @@ activate (GApplication *application)
 
     if (arv_get_n_devices () == 0) {
         log_warning("No camera found.");
-        log_info("If a USB camera is connected, it might require sudo privileges to be seen.");
         log_info("If you have no camera available, you can use a fake one by running arv-fake-gv-camera.");
+        log_info("If a USB camera is connected, see README.md - Troubleshooting - Camera not listed.");
     }
 
     // Apply gevcapture options
@@ -546,6 +548,9 @@ startup (GApplication *application)
 static void
 finalize (GObject *object)
 {
+	LrdViewer *viewer = (LrdViewer *) object;
+	forget_displayed_frame (viewer);
+	g_mutex_clear (&viewer->last_frame_mutex);
 	G_OBJECT_CLASS (arv_viewer_parent_class)->finalize (object);
 }
 
@@ -577,6 +582,7 @@ arv_viewer_init (LrdViewer *viewer)
 	viewer->frame_retention = 100;
 	viewer->register_cache_policy = ARV_REGISTER_CACHE_POLICY_DEFAULT;
 	viewer->range_check_policy = ARV_RANGE_CHECK_POLICY_DEFAULT;
+	g_mutex_init (&viewer->last_frame_mutex);
 }
 
 static void

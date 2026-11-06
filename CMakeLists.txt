@@ -49,6 +49,8 @@ add_executable( limrendir
         limrendir_settings.h
         limrendir_settings.c
         limrendir_overlay.c
+        limrendir_pixelformat.h
+        limrendir_pixelformat.c
 
         main.c limrendir_acquisition_settings.c
 
