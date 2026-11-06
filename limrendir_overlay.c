@@ -315,6 +315,7 @@ static gboolean overlay_button_release_cb (GtkWidget *widget, GdkEventButton *ev
     }
     gtk_widget_queue_draw (widget);
     update_status_bar_cb (viewer);
+    update_fov_buttons (viewer);
     return TRUE;
 }
 
@@ -347,4 +348,5 @@ void overlay_queue_redraw (LrdViewer *viewer)
         return;
     gtk_widget_queue_draw (viewer->video_widget);
     overlay_update_cursor (viewer, viewer->video_widget);
+    update_fov_buttons (viewer);
 }

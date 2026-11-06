@@ -382,6 +382,7 @@ activate (GApplication *application)
 	viewer->auto_black_level_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "auto_black_level_togglebutton"));
 
 	viewer->rotate_cw_button = GTK_WIDGET (gtk_builder_get_object (builder, "rotate_cw_button"));
+	viewer->transform_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "transform_toggle"));
 	viewer->flip_vertical_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_vertical_togglebutton"));
 	viewer->flip_horizontal_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_horizontal_togglebutton"));
     viewer->camera_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "camera_settings_button"));
@@ -439,6 +440,17 @@ activate (GApplication *application)
 	g_signal_connect (viewer->main_window, "destroy", G_CALLBACK (arv_viewer_quit_cb), viewer);
 	g_signal_connect (viewer->snapshot_button, "clicked", G_CALLBACK (snapshot_cb), viewer);
 	g_signal_connect (viewer->rotate_cw_button, "clicked", G_CALLBACK (rotate_cw_cb), viewer);
+	g_signal_connect (gtk_builder_get_object (builder, "grid_button"), "clicked", G_CALLBACK (grid_button_cb), viewer);
+	viewer->roi_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "roi_button"));
+	viewer->crop_button = GTK_WIDGET (gtk_builder_get_object (builder, "crop_button"));
+	viewer->whole_view_button = GTK_WIDGET (gtk_builder_get_object (builder, "whole_view_button"));
+	viewer->zoom_in_button = GTK_WIDGET (gtk_builder_get_object (builder, "zoom_in_button"));
+	viewer->zoom_out_button = GTK_WIDGET (gtk_builder_get_object (builder, "zoom_out_button"));
+	viewer->roi_toggle_clicked = g_signal_connect (viewer->roi_toggle, "clicked", G_CALLBACK (roi_button_cb), viewer);
+	g_signal_connect (viewer->crop_button, "clicked", G_CALLBACK (crop_button_cb), viewer);
+	g_signal_connect (viewer->whole_view_button, "clicked", G_CALLBACK (whole_view_button_cb), viewer);
+	g_signal_connect (viewer->zoom_in_button, "clicked", G_CALLBACK (zoom_in_button_cb), viewer);
+	g_signal_connect (viewer->zoom_out_button, "clicked", G_CALLBACK (zoom_out_button_cb), viewer);
 	viewer->flip_horizontal_clicked = g_signal_connect (viewer->flip_horizontal_toggle, "clicked",
 	                                                    G_CALLBACK (flip_horizontal_cb), viewer);
 	viewer->flip_vertical_clicked = g_signal_connect (viewer->flip_vertical_toggle, "clicked",

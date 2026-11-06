@@ -219,6 +219,7 @@ int main (int argc, char **argv)
 
 	icon_theme = gtk_icon_theme_get_default ();
 	gtk_icon_theme_add_resource_path (icon_theme, "/org/aravis/viewer/icons/gnome/");
+	gtk_icon_theme_add_resource_path (icon_theme, "/org/limrendir/icons/");
 
     // Log level
     if (lrd_option_log_level < LOG_ERROR) {

@@ -44,6 +44,7 @@ void camera_region_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
     update_camera_region (viewer);
     // The region and binning change the achievable frame rate
     update_frame_rate_display (viewer);
+    update_fov_buttons (viewer);
 }
 
 // Binning
@@ -57,6 +58,7 @@ void camera_binning_cb (GtkSpinButton *spin_button, LrdViewer *viewer) {
     update_camera_region (viewer);
     // The region and binning change the achievable frame rate
     update_frame_rate_display (viewer);
+    update_fov_buttons (viewer);
 }
 
 // Updates the region and binning spin boxes

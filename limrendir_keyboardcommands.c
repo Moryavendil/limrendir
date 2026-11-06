@@ -300,6 +300,36 @@ static void get_max_region_size (LrdViewer *viewer, gint *max_w, gint *max_h) {
     }
 }
 
+// Makes the ROI button show whether the ROI mode is on (without acting on it), and enables the field of view buttons
+// only when they would do something: crop needs a ROI smaller than the field of view, global view and zoom out need a
+// field of view smaller than the largest one.
+void update_fov_buttons (LrdViewer *viewer) {
+    if (viewer->roi_toggle == NULL)
+        return;
+
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->roi_toggle)) != viewer->show_roi) {
+        g_signal_handler_block (viewer->roi_toggle, viewer->roi_toggle_clicked);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->roi_toggle), viewer->show_roi);
+        g_signal_handler_unblock (viewer->roi_toggle, viewer->roi_toggle_clicked);
+    }
+
+    gboolean can_crop = FALSE, can_unzoom = FALSE;
+    if (!viewer->video_controls_locked && ARV_IS_CAMERA (viewer->camera)) {
+        gint x, y, w, h, min_x, min_y, max_w, max_h;
+        arv_camera_get_region (viewer->camera, &x, &y, &w, &h, NULL);
+        arv_camera_get_x_offset_bounds (viewer->camera, &min_x, NULL, NULL);
+        arv_camera_get_y_offset_bounds (viewer->camera, &min_y, NULL, NULL);
+        get_max_region_size (viewer, &max_w, &max_h);
+
+        can_crop = viewer->show_roi &&
+                   (viewer->roi_x != 0 || viewer->roi_y != 0 || viewer->roi_w != w || viewer->roi_h != h);
+        can_unzoom = x != min_x || y != min_y || w != max_w || h != max_h;
+    }
+    gtk_widget_set_sensitive (viewer->crop_button, can_crop);
+    gtk_widget_set_sensitive (viewer->whole_view_button, can_unzoom);
+    gtk_widget_set_sensitive (viewer->zoom_out_button, can_unzoom);
+}
+
 void see_whole_field_of_view(LrdViewer *viewer) {
     log_debug("Seeing all the field of view");
     log_trace("=== Start VIEWALL");
@@ -523,6 +553,37 @@ void toggle_grid(LrdViewer *viewer) {
     overlay_queue_redraw(viewer);
 }
 
+void grid_button_cb (GtkButton *button, LrdViewer *viewer) {
+    toggle_grid(viewer);
+}
+
+// FIELD OF VIEW BUTTONS (same as the r, c, a, z and Z keys)
+void roi_button_cb (GtkButton *button, LrdViewer *viewer) {
+    toggle_roi(viewer);
+    update_fov_buttons(viewer);    // toggle_roi does nothing when no ROI is possible
+}
+
+void crop_button_cb (GtkButton *button, LrdViewer *viewer) {
+    crop_to_roi(viewer);
+    update_fov_buttons(viewer);
+}
+
+void whole_view_button_cb (GtkButton *button, LrdViewer *viewer) {
+    see_whole_field_of_view(viewer);
+    update_fov_buttons(viewer);
+}
+
+void zoom_in_button_cb (GtkButton *button, LrdViewer *viewer) {
+    zoomin(viewer);
+    update_fov_buttons(viewer);
+}
+
+void zoom_out_button_cb (GtkButton *button, LrdViewer *viewer) {
+    zoomout(viewer);
+    update_fov_buttons(viewer);
+}
+
+
 // CHANGE EXPOSURE (+/-/Pg Up/Pg Down)
 void change_exposure(LrdViewer *viewer, GtkSpinType direction) {
     gtk_spin_button_spin (GTK_SPIN_BUTTON (viewer->exposure_spin_button), direction, 1);
@@ -723,6 +784,8 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
         }
     }
+
+    update_fov_buttons(viewer);
 
     // Let the key also reach the focused widget (e.g. to type in an entry)
     return FALSE;

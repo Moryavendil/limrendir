@@ -94,9 +94,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
     }
 
     gtk_widget_set_visible (viewer->back_button, video_visibility);
-    gtk_widget_set_visible (viewer->rotate_cw_button, video_visibility);
-    gtk_widget_set_visible (viewer->flip_vertical_toggle, video_visibility);
-    gtk_widget_set_visible (viewer->flip_horizontal_toggle, video_visibility);
+    gtk_widget_set_visible (viewer->transform_toggle, video_visibility);
     gtk_widget_set_visible (viewer->snapshot_button, video_visibility);
     gtk_widget_set_visible (viewer->camera_settings_button, video_visibility);
     gtk_widget_set_visible (viewer->acquisition_settings_button, video_visibility);
@@ -104,6 +102,9 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 
     // Custom G2L
     gtk_widget_set_visible (viewer->record_button, video_visibility);
+
+    if (video_visibility)
+        update_fov_buttons (viewer);
 
 }
 
@@ -117,6 +118,10 @@ void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
     gtk_widget_set_sensitive (viewer->rotate_cw_button, sensitive);
     gtk_widget_set_sensitive (viewer->flip_vertical_toggle, sensitive);
     gtk_widget_set_sensitive (viewer->flip_horizontal_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->roi_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->zoom_in_button, sensitive);
+    viewer->video_controls_locked = !sensitive;
+    update_fov_buttons (viewer);    // crop, global view and zoom out
 }
 
 // VIDEO MODE

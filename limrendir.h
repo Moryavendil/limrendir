@@ -148,6 +148,14 @@ struct  _LrdViewer {
     GtkWidget *back_button;
     GtkWidget *snapshot_button;
     GtkWidget *rotate_cw_button;
+    GtkWidget *transform_toggle;
+    GtkWidget *roi_toggle;
+    gulong roi_toggle_clicked;
+    gboolean video_controls_locked;    // during a recording or an exposure search
+    GtkWidget *crop_button;
+    GtkWidget *whole_view_button;
+    GtkWidget *zoom_in_button;
+    GtkWidget *zoom_out_button;
     GtkWidget *flip_vertical_toggle;
     GtkWidget *flip_horizontal_toggle;
     GtkWidget *camera_settings_button;
@@ -338,6 +346,13 @@ void update_transform (LrdViewer *viewer);
 gint get_videoflip_method (LrdViewer *viewer);
 
 void rotate_cw_cb (GtkButton *button, LrdViewer *viewer);
+void grid_button_cb (GtkButton *button, LrdViewer *viewer);
+void roi_button_cb (GtkButton *button, LrdViewer *viewer);
+void crop_button_cb (GtkButton *button, LrdViewer *viewer);
+void whole_view_button_cb (GtkButton *button, LrdViewer *viewer);
+void zoom_in_button_cb (GtkButton *button, LrdViewer *viewer);
+void zoom_out_button_cb (GtkButton *button, LrdViewer *viewer);
+void update_fov_buttons (LrdViewer *viewer);
 
 void flip_horizontal_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
