@@ -72,7 +72,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
-                                                                  "Zoom at the center of the FOV\n"
+                                                                  "Zoom in (x2)\n"
                                                                   "Zoom out (x2)\n"
                                                                  "Toggle Region Of Interest mode\n"
                                                                  "Move upper left corner of ROI\n"
