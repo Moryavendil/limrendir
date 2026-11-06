@@ -228,8 +228,9 @@ struct  _LrdViewer {
     gint n_display_skips; // frames not displayed to keep buffers for the stream (atomic: stream thread)
     guint last_n_display_skips;
 
-    // Number of buffers given to the current stream
-    unsigned n_stream_buffers;
+    // Number of stream buffers sent to the display and not yet released by GStreamer
+    // (atomic: changed by the stream thread and the GStreamer threads)
+    gint n_display_buffers;
 
     guint recording_snapshots_update_event;
 

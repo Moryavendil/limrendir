@@ -45,6 +45,7 @@ typedef struct {
     GWeakRef stream;
     ArvBuffer* arv_buffer;
     void *data;
+    gint *n_display_buffers; // the viewer counter of the buffers held by the display
 } ArvGstBufferReleaseData;
 
 static void
@@ -55,6 +56,7 @@ gst_buffer_release_cb (void *user_data)
     ArvStream* stream = g_weak_ref_get (&release_data->stream);
 
     g_free (release_data->data);
+    g_atomic_int_dec_and_test (release_data->n_display_buffers);
 
     if (stream) {
 //		gint n_input_buffers, n_output_buffers;
@@ -113,6 +115,8 @@ arv_to_gst_buffer (ArvBuffer *arv_buffer, ArvStream *stream, LrdViewer *viewer)
 
     g_weak_ref_init (&release_data->stream, stream);
     release_data->arv_buffer = arv_buffer;
+    release_data->n_display_buffers = &viewer->n_display_buffers;
+    g_atomic_int_inc (&viewer->n_display_buffers);
 
     ArvPixelFormat const pixel_format = arv_buffer_get_image_pixel_format (arv_buffer);
     /* Gstreamer requires row stride to be a multiple of 4 */
@@ -207,8 +211,6 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
 ArvStream *create_camera_stream (LrdViewer *viewer, ArvStreamCallback callback)
 {
     GError *error = NULL;
-    // The buffers of the new stream are counted by push_new_buffers
-    viewer->n_stream_buffers = 0;
     ArvStream *stream = arv_camera_create_stream (viewer->camera, callback, NULL, &error);
     if (!ARV_IS_STREAM (stream)) {
         const char *reason = error != NULL ? error->message : "unknown error";
@@ -283,22 +285,22 @@ void configure_stream (LrdViewer *viewer)
 // - the display never holds more than LRD_MAX_DISPLAY_BUFFERS buffers;
 // - the stream must still own a buffer (from aravis 0b48b0ea9). Since every stream gets at least 10 buffers, the
 //   first rule already ensures it: this one is only a safety net.
+// The buffers held by the display are counted by limrendir (arv_to_gst_buffer and gst_buffer_release_cb): they
+// cannot be deduced from the stream counts, since Aravis 0.8 does not count the buffers being filled (in the
+// asynchronous USB mode, several frames are filled at the same time).
 gboolean can_display_buffer (LrdViewer *viewer, ArvStream *stream)
 {
-    gint n_input_buffers, n_output_buffers;
-    gint n_buffer_filling = 0;
-
+    gboolean stream_owns_a_buffer = TRUE;
 #if ARAVIS_CHECK_VERSION(0, 9, 0)
+    gint n_input_buffers, n_output_buffers, n_buffer_filling = 0;
     arv_stream_get_n_owned_buffers (stream, &n_input_buffers, &n_output_buffers, &n_buffer_filling);
+    stream_owns_a_buffer = n_input_buffers + n_output_buffers + n_buffer_filling > 0;
 #else
-    // Aravis 0.8 cannot count the buffer being filled: it is counted as held by the display (more cautious)
-    arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
+    // Aravis 0.8 cannot tell (the queue lengths do not count the buffers being filled): rely on the first rule
+    (void) stream;
 #endif
-    gint n_owned = n_input_buffers + n_output_buffers + n_buffer_filling;
-    // The other buffers are held by the display, except the one the caller has just popped
-    gint n_held_by_display = (gint) viewer->n_stream_buffers - n_owned - 1;
 
-    if (n_owned > 0 && n_held_by_display < LRD_MAX_DISPLAY_BUFFERS)
+    if (stream_owns_a_buffer && g_atomic_int_get (&viewer->n_display_buffers) < LRD_MAX_DISPLAY_BUFFERS)
         return TRUE;
 
     g_atomic_int_inc (&viewer->n_display_skips);
@@ -321,7 +323,6 @@ void push_new_buffers (LrdViewer *viewer, unsigned n)
             memset (data, 0, payload);
         arv_stream_push_buffer (viewer->stream, buffer);
     }
-    viewer->n_stream_buffers += n;
     log_debug ("%u buffers of %u bytes allocated in %.0f ms", n, payload, (g_get_monotonic_time () - start_us) / 1000.0);
 }
 
