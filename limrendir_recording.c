@@ -99,6 +99,90 @@ static FILE *open_dataset_file(LrdViewer *viewer, const char *dirname, const cha
     return file;
 }
 
+// RECORDED REGION
+// The part of the images that is recorded, decided when the recording starts (the ROI cannot change during it):
+// the ROI if it is used, constrained to the field of view, else the whole field of view. A ROI equal to the whole
+// field of view counts as no ROI.
+typedef struct {
+    gboolean using_roi;     // a ROI smaller than the field of view is used
+    gboolean cropped;       // the recorded region is smaller than the field of view
+    int fov_width, fov_height;
+    int x, y, width, height;
+} RecordedRegion;
+
+static RecordedRegion recorded_region;
+
+// With even_size (needed by H.264 4:2:0 in MP4), the width and height are rounded down to even numbers.
+static void prepare_recorded_region (LrdViewer *viewer, gboolean even_size) {
+    RecordedRegion *r = &recorded_region;
+    arv_camera_get_region (viewer->camera, NULL, NULL, &r->fov_width, &r->fov_height, NULL);
+    r->x = 0;
+    r->y = 0;
+    r->width = r->fov_width;
+    r->height = r->fov_height;
+
+    if (viewer->show_roi) {
+        constrain_roi_to_field_of_view (viewer, r->fov_width, r->fov_height);
+        r->x = viewer->roi_x;
+        r->y = viewer->roi_y;
+        r->width = viewer->roi_w;
+        r->height = viewer->roi_h;
+    }
+
+    if (even_size) {
+        // Shrink by one pixel if needed (keeping at least 2 pixels, moved back inside the field of view)
+        if (r->width % 2 != 0 || r->height % 2 != 0)
+            log_info("MP4 videos need an even width and height: the recorded region loses its last odd column / row.");
+        r->width = MAX (r->width - r->width % 2, 2);
+        r->height = MAX (r->height - r->height % 2, 2);
+        r->x = MAX (MIN (r->x, r->fov_width - r->width), 0);
+        r->y = MAX (MIN (r->y, r->fov_height - r->height), 0);
+    }
+
+    r->cropped = r->x != 0 || r->y != 0 || r->width != r->fov_width || r->height != r->fov_height;
+    r->using_roi = viewer->show_roi && r->cropped;
+    if (viewer->show_roi && !r->using_roi)
+        log_debug("The ROI is the whole field of view: recording as without ROI.");
+    log_debug("Recorded region: x: %d ; y: %d ; w: %d ; h: %d (field of view %dx%d, %s)", r->x, r->y, r->width, r->height,
+              r->fov_width, r->fov_height, r->using_roi ? "ROI" : "no ROI");
+}
+
+// Writes the recorded region of a frame in the .gcv image file
+static void write_recorded_region (FILE *file, ArvBuffer *buffer) {
+    size_t size;
+    const uint8_t *data = arv_buffer_get_data (buffer, &size);
+    const RecordedRegion *r = &recorded_region;
+    if (!r->cropped) {
+        fwrite (data, 1, size, file);
+        return;
+    }
+
+    gint buffer_width = 0, buffer_height = 0;
+    arv_buffer_get_image_region (buffer, NULL, NULL, &buffer_width, &buffer_height);
+    guint const bits_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer));
+    size_t const bpp = bits_per_pixel / 8;
+    if (bits_per_pixel % 8 != 0 || bpp == 0 || buffer_width != r->fov_width || buffer_height != r->fov_height ||
+        size < (size_t) buffer_width * buffer_height * bpp) {
+        // Should not happen (the field of view cannot change during a recording): never read outside the frame
+        static gboolean warned = FALSE;
+        if (!warned)
+            log_warning("Frame of unexpected size or format (%dx%d): the whole frame is recorded, not the ROI.",
+                        buffer_width, buffer_height);
+        warned = TRUE;
+        fwrite (data, 1, size, file);
+        return;
+    }
+
+    size_t const stride = (size_t) buffer_width * bpp;
+    if (r->width == buffer_width) {
+        // Whole rows: one block
+        fwrite (data + r->y * stride, 1, r->height * stride, file);
+    } else {
+        for (int row = r->y; row < r->y + r->height; row++)
+            fwrite (data + row * stride + r->x * bpp, 1, r->width * bpp, file);
+    }
+}
+
 // Creates the .gcv folder and its files. Returns FALSE (with everything closed) if this is not possible.
 gboolean open_files(LrdViewer *viewer) {
 
@@ -152,11 +236,12 @@ void write_meta(LrdViewer *viewer) {
     fprintf(metaFile, "cameraRegionY=%d\n", y_offset);
     fprintf(metaFile, "cameraRegionWidth=%d\n", width);
     fprintf(metaFile, "cameraRegionHeight=%d\n", height);
-    fprintf(metaFile, "usingROI=%s\n", viewer->show_roi ? "true" : "false");
-    fprintf(metaFile, "viewerRegionX=%d\n", viewer->roi_x);
-    fprintf(metaFile, "viewerRegionY=%d\n", viewer->roi_y);
-    fprintf(metaFile, "viewerRegionWidth=%d\n", viewer->roi_w);
-    fprintf(metaFile, "viewerRegionHeight=%d\n", viewer->roi_h);
+    // The recorded region (prepare_recorded_region), relative to the camera region
+    fprintf(metaFile, "usingROI=%s\n", recorded_region.using_roi ? "true" : "false");
+    fprintf(metaFile, "viewerRegionX=%d\n", recorded_region.x);
+    fprintf(metaFile, "viewerRegionY=%d\n", recorded_region.y);
+    fprintf(metaFile, "viewerRegionWidth=%d\n", recorded_region.width);
+    fprintf(metaFile, "viewerRegionHeight=%d\n", recorded_region.height);
     fprintf(metaFile, "captureCameraName=\"%s\"\n", arv_camera_get_model_name(viewer->camera, NULL));
     fprintf(metaFile, "pixelFormat=\"%s\"\n", arv_camera_get_pixel_format_as_string(viewer->camera, NULL));
     fprintf(metaFile, "captureFrequency=%f\n", get_actual_frame_rate(viewer));
@@ -634,9 +719,6 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
 
     guint32 running_number;
 
-    uint8_t *image_data;
-    size_t size;
-
     static gboolean show_this_frame = FALSE;
 
     arv_stream_get_n_buffers (stream, &n_input_buffers, &n_output_buffers);
@@ -685,30 +767,8 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
                 arv_buffer_get_timestamp(buffer),   // camera time (ns), guint64
                 clock_millis(clock_now_recording));        // computer time (ms)
 
-        // write image data
-        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-        if (viewer->show_roi) {
-            int width, height;
-            arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
-            // Bytes per pixel (the ROI is only possible with a whole number of them, cf is_roi_possible)
-            size_t const bpp = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer)) / 8;
-            if (size == bpp * viewer->roi_w * viewer->roi_h) {
-                // The roi is useless
-                fwrite(image_data, 1, size, imageFile);
-            } else if (width == viewer->roi_w) {
-                // The roi is used to constrain only in y
-                size_t offset = bpp * viewer->roi_y * width;
-                fwrite(image_data + offset, 1, bpp * viewer->roi_w * viewer->roi_h, imageFile);
-            } else {
-                // general case
-                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = bpp * ((size_t) i_line * width + viewer->roi_x);
-                    fwrite(image_data + offset, 1, bpp * viewer->roi_w, imageFile);
-                }
-            }
-        } else {
-            fwrite(image_data, 1, size, imageFile);
-        }
+        // write image data (the ROI only, if one is used)
+        write_recorded_region(imageFile, buffer);
 
         // Push back the buffer (in the right queue)
         if (clock_diff_millis(clock_now_recording, clock_last_snapshot_recording) * display_fps_recording > 1000) {
@@ -757,6 +817,7 @@ static gboolean setup_stream_for_gevcapture_style_recording(LrdViewer *viewer) {
     if (!open_files(viewer))
         return FALSE;
 
+    prepare_recorded_region(viewer, FALSE);
     write_meta(viewer);
 
     // Create the stream
@@ -828,6 +889,10 @@ static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
     g_string_append_printf (text, "cameraRegionX=%d\ncameraRegionY=%d\ncameraRegionWidth=%d\ncameraRegionHeight=%d\n",
                             x, y, width, height);
     g_string_append_printf (text, "binningX=%d\nbinningY=%d\n", binning_x, binning_y);
+    // The recorded region (prepare_recorded_region), relative to the camera region
+    g_string_append_printf (text, "usingROI=%s\n", recorded_region.using_roi ? "true" : "false");
+    g_string_append_printf (text, "viewerRegionX=%d\nviewerRegionY=%d\nviewerRegionWidth=%d\nviewerRegionHeight=%d\n",
+                            recorded_region.x, recorded_region.y, recorded_region.width, recorded_region.height);
     g_string_append_printf (text, "captureFrequency=%f\n", gst_capture_frame_rate);
     g_string_append_printf (text, "playbackFrequency=%d\n", mp4_playback_fps);
     g_string_append_printf (text, "slowdownFactor=%f\n", gst_capture_frame_rate / mp4_playback_fps);
@@ -919,6 +984,26 @@ static GstPadLinkReturn link_pad_to_element (GstPad *src_pad, GstElement *elemen
     GstPadLinkReturn result = gst_pad_link (src_pad, sink_pad);
     gst_object_unref (sink_pad);
     return result;
+}
+
+// Links the tee to the first element of the recording branch, through a videocrop element if only a part of the
+// images is recorded (recorded_region). The frames are not rotated / flipped during recordings, so the region is in
+// image coordinates.
+static gboolean link_tee_to_recording_branch (LrdViewer *viewer, GstPad *tee_src_pad, GstElement *first) {
+    const RecordedRegion *r = &recorded_region;
+    if (!r->cropped)
+        return !GST_PAD_LINK_FAILED (link_pad_to_element (tee_src_pad, first));
+
+    GstElement *videocrop = gst_element_factory_make ("videocrop", NULL);
+    if (videocrop == NULL) {
+        log_error("The GStreamer element videocrop (gst-plugins-good) is missing: cannot record the ROI only.");
+        return FALSE;
+    }
+    g_object_set (G_OBJECT (videocrop),
+                  "left", r->x, "top", r->y,
+                  "right", r->fov_width - r->x - r->width, "bottom", r->fov_height - r->y - r->height, NULL);
+    gst_bin_add (GST_BIN (viewer->pipeline), videocrop);
+    return !GST_PAD_LINK_FAILED (link_pad_to_element (tee_src_pad, videocrop)) && gst_element_link (videocrop, first);
 }
 
 // jhfdejhgfuyswfiuse
@@ -1036,6 +1121,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             gst_util_set_object_arg (G_OBJECT (x264enc), "pass", "qual");
             g_object_set (G_OBJECT (x264enc), "quantizer", mp4_encoding_settings.quality, NULL);
             mp4mux = gst_element_factory_make ("mp4mux", NULL);
+            prepare_recorded_region (viewer, TRUE);
             gst_capture_frame_rate = get_actual_frame_rate (viewer);
             set_video_file_tags (viewer, mp4mux, FALSE);
             filesink = gst_element_factory_make ("filesink", NULL);
@@ -1047,8 +1133,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), videoconvert_rec, capsfilter, queue, x264enc, mp4mux, filesink, NULL);
             // Linking the elements
-            link_success = link_pad_to_element (tee_record_src_pad, videoconvert_rec);
-            if (GST_PAD_LINK_FAILED (link_success)) {
+            if (!link_tee_to_recording_branch (viewer, tee_record_src_pad, videoconvert_rec)) {
                 log_debug("Link from the tee to the videoconvert_rec for recording failed.");
                 return FALSE;
             }
@@ -1090,6 +1175,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             }
             // One encoding thread per core: a single thread cannot follow high frame rates
             g_object_set (G_OBJECT (avenc_ffv1), "threads", 0, NULL);
+            prepare_recorded_region (viewer, FALSE);
             gst_capture_frame_rate = get_actual_frame_rate (viewer);
             set_video_file_tags (viewer, matroskamux, FALSE);
             g_object_set (G_OBJECT(filesink), "location", filename, NULL);
@@ -1099,8 +1185,7 @@ static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
             // Adding to the bin
             gst_bin_add_many (GST_BIN (viewer->pipeline), capsfilter, queue, avenc_ffv1, matroskamux, filesink, NULL);
             // Linking the elements
-            link_success = link_pad_to_element (tee_record_src_pad, capsfilter);
-            if (GST_PAD_LINK_FAILED (link_success)) {
+            if (!link_tee_to_recording_branch (viewer, tee_record_src_pad, capsfilter)) {
                 log_debug("Link from the tee to the capsfilter for recording failed.");
                 return FALSE;
             }
@@ -1207,6 +1292,7 @@ static gboolean bourrin_recording(void *data)
         return FALSE;
     }
 
+    prepare_recorded_region(viewer, FALSE);
     write_meta(viewer);
 
     // Create the stream
@@ -1236,9 +1322,6 @@ static gboolean bourrin_recording(void *data)
     FrameNumbering burst_numbering;
     frame_numbering_reset(&burst_numbering);
     guint32 running_number;
-
-    uint8_t *image_data;
-    size_t size;
 
     // Maximum time to wait for a frame before giving up: 10 s, or 10 frame periods if that is longer
     // (very low frame rates), so that a camera that stops sending cannot hang the application.
@@ -1280,30 +1363,8 @@ static gboolean bourrin_recording(void *data)
                 arv_buffer_get_timestamp(buffer),            // camera time (ns), guint64
                 clock_millis(clock_now_recording));       // computer time (ms)
 
-        // write image data
-        image_data = (uint8_t *) arv_buffer_get_data(buffer, &size);
-        if (viewer->show_roi) {
-            int width, height;
-            arv_camera_get_region(viewer->camera, NULL, NULL, &width, &height, NULL);
-            // Bytes per pixel (the ROI is only possible with a whole number of them, cf is_roi_possible)
-            size_t const bpp = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (buffer)) / 8;
-            if (size == bpp * viewer->roi_w * viewer->roi_h) {
-                // The roi is useless
-                fwrite(image_data, 1, size, imageFile);
-            } else if (width == viewer->roi_w) {
-                // The roi is used to constrain only in y
-                size_t offset = bpp * viewer->roi_y * width;
-                fwrite(image_data + offset, 1, bpp * viewer->roi_w * viewer->roi_h, imageFile);
-            } else {
-                // general case
-                for (int i_line = viewer->roi_y; i_line < viewer->roi_y + viewer->roi_h; i_line++) {
-                    size_t offset = bpp * ((size_t) i_line * width + viewer->roi_x);
-                    fwrite(image_data + offset, 1, bpp * viewer->roi_w, imageFile);
-                }
-            }
-        } else {
-            fwrite(image_data, 1, size, imageFile);
-        }
+        // write image data (the ROI only, if one is used)
+        write_recorded_region(imageFile, buffer);
         n_recorded_frames++;
 
         // Push back the buffer

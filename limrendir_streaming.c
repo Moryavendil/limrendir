@@ -329,6 +329,8 @@ void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
     viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
     GstElement *videoconvert = gst_element_factory_make ("videoconvert", NULL);
     viewer->transform = gst_element_factory_make ("videoflip", NULL);
+    // Its videoflip starts untransformed: so must be the viewer state (used by the overlay)
+    reset_image_transform (viewer);
 
     log_trace("    Adding elements to the gstreamer pipeline.");
     gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
