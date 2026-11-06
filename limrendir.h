@@ -26,7 +26,7 @@
 
 G_BEGIN_DECLS
 
-#define LIMRENDIR_VERSION "0.8.1"
+#define LIMRENDIR_VERSION "0.8.2"
 
 typedef struct	_LrdViewer	LrdViewer;
 
