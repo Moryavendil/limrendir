@@ -511,14 +511,13 @@ void zoomout(LrdViewer *viewer) {
 
 // TOGGLE GRID (g)
 void toggle_grid(LrdViewer *viewer) {
-    if (viewer->grid_type == GRID_NOGRID) {
-        viewer->grid_type = GRID_HORIZONTAL;
-    } else if (viewer->grid_type == GRID_HORIZONTAL) {
-        viewer->grid_type = GRID_BOTH;
-    } else if (viewer->grid_type == GRID_BOTH) {
-        viewer->grid_type = GRID_VERTICAL;
-    } else if (viewer->grid_type == GRID_VERTICAL) {
-        viewer->grid_type = GRID_NOGRID;
+    // nothing -> horizontal -> vertical -> both -> crosshair -> nothing
+    switch (viewer->grid_type) {
+        case GRID_NOGRID: viewer->grid_type = GRID_HORIZONTAL; break;
+        case GRID_HORIZONTAL: viewer->grid_type = GRID_VERTICAL; break;
+        case GRID_VERTICAL: viewer->grid_type = GRID_BOTH; break;
+        case GRID_BOTH: viewer->grid_type = GRID_CROSSHAIR; break;
+        default: viewer->grid_type = GRID_NOGRID; break;
     }
     log_debug("Switched to a new grid : %d.", (int) viewer->grid_type);
     overlay_queue_redraw(viewer);

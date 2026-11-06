@@ -80,7 +80,8 @@ typedef enum {
     GRID_NOGRID,
     GRID_HORIZONTAL,
     GRID_VERTICAL,
-    GRID_BOTH
+    GRID_BOTH,
+    GRID_CROSSHAIR    // one horizontal and one vertical line through the center, and a circle
 } GridType;
 
 // TYPE OF RECORD THAT IS WISHED

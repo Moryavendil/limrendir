@@ -92,6 +92,19 @@ static gboolean overlay_widget_to_image (LrdViewer *viewer, GtkWidget *widget, d
 // Adds the grid lines (in image coordinates) to the current path
 static void overlay_grid_path (cairo_t *cr, GridType grid_type, int width, int height)
 {
+    if (grid_type == GRID_CROSSHAIR) {
+        // One horizontal and one vertical line through the center of the field of view, and a circle around it
+        // whose diameter is the smallest side of the field of view (it touches the edges)
+        double const center_x = width / 2.0, center_y = height / 2.0;
+        cairo_move_to (cr, 0, center_y);
+        cairo_line_to (cr, width, center_y);
+        cairo_move_to (cr, center_x, 0);
+        cairo_line_to (cr, center_x, height);
+        cairo_new_sub_path (cr);
+        cairo_arc (cr, center_x, center_y, MIN (width, height) / 2.0, 0, 2 * G_PI);
+        return;
+    }
+
     // Lines go through the middle of the pixel rows / columns where the grid was drawn before
     if (grid_type == GRID_HORIZONTAL || grid_type == GRID_BOTH) {
         for (int line = height / 2 % OVERLAY_GRID_SPACING; line < height; line += OVERLAY_GRID_SPACING) {
