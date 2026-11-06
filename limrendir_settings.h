@@ -10,6 +10,7 @@
 #define SETTINGS_GROUP_SNAPSHOT "snapshot"
 #define SETTINGS_GROUP_VIDEO "video"
 #define SETTINGS_KEY_DIRECTORY "directory"
+#define SETTINGS_KEY_FORMAT "format"
 
 // Loads the settings file. A missing or unreadable file is not an error: defaults are used.
 void settings_load(void);
