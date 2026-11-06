@@ -510,6 +510,57 @@ void stream_video_cb (void *user_data, ArvStreamCallbackType type, ArvBuffer *bu
     }
 }
 
+// Text "(dark %) min – max (saturated %)" of the last frame, or NULL. In ROI mode, only the ROI is considered.
+// Values are bytes: meaningful for 8-bit pixel formats.
+static char *saturation_text (LrdViewer *viewer)
+{
+    if (viewer->last_buffer == NULL)
+        return NULL;
+
+    size_t buffer_size;
+    const uint8_t *data = arv_buffer_get_data (viewer->last_buffer, &buffer_size);
+    if (data == NULL || buffer_size == 0)
+        return NULL;
+
+    // The zone considered (in bytes): the whole buffer, or the rows / columns of the ROI
+    gint width = 0, height = 0;
+    arv_buffer_get_image_region (viewer->last_buffer, NULL, NULL, &width, &height);
+    size_t const bytes_per_pixel = ARV_PIXEL_FORMAT_BIT_PER_PIXEL (arv_buffer_get_image_pixel_format (viewer->last_buffer)) / 8;
+    size_t row_bytes = buffer_size, stride = buffer_size, first_row = 0, n_rows = 1, first_byte = 0;
+    if (viewer->show_roi && bytes_per_pixel > 0 && width > 0 && height > 0 &&
+        (size_t) width * height * bytes_per_pixel <= buffer_size) {
+        int const x = CLAMP (viewer->roi_x, 0, width - 1);
+        int const y = CLAMP (viewer->roi_y, 0, height - 1);
+        int const w = CLAMP (viewer->roi_w, 1, width - x);
+        int const h = CLAMP (viewer->roi_h, 1, height - y);
+        row_bytes = (size_t) w * bytes_per_pixel;
+        stride = (size_t) width * bytes_per_pixel;
+        first_row = y;
+        n_rows = h;
+        first_byte = (size_t) x * bytes_per_pixel;
+    }
+
+    uint8_t value_min = 255, value_max = 0;
+    size_t n_dark = 0, n_saturated = 0;
+    for (size_t row = first_row; row < first_row + n_rows; row++) {
+        const uint8_t *line = data + row * stride + first_byte;
+        for (size_t i = 0; i < row_bytes; i++) {
+            uint8_t const value = line[i];
+            if (value > value_max)
+                value_max = value;
+            if (value < value_min)
+                value_min = value;
+            if (value == 0)
+                n_dark++;
+            else if (value == 255)
+                n_saturated++;
+        }
+    }
+    double const n_values = (double) row_bytes * n_rows;
+    return g_strdup_printf ("(%.2f %%) %d – %d (%.2f %%)", 100 * n_dark / n_values, value_min, value_max,
+                            100 * n_saturated / n_values);
+}
+
 gboolean update_status_bar_cb (void *data)
 {
     LrdViewer *viewer = data;
@@ -530,43 +581,8 @@ gboolean update_status_bar_cb (void *data)
     gtk_label_set_label (GTK_LABEL (viewer->fps_label), text);
     g_free (text);
 
-    // ROI label
-    text = NULL;
-    if (viewer->show_roi) {
-        text = g_strdup_printf("ROI: +%d +%d %dx%d", viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
-    } else if (viewer->last_buffer != NULL) {
-        uint8_t *buffer_data_uint8;
-        size_t buffer_size;
-
-        // get the data
-        buffer_data_uint8 = (uint8_t *) arv_buffer_get_data (viewer->last_buffer, &buffer_size);
-
-        // GET MIN MAX
-        uint8_t valbuffermin = 255;
-        uint8_t valbuffermax = 0;
-        size_t saturated_0 = 0;
-        size_t saturated_255 = 0;
-        for (size_t i = 0 ; i < buffer_size ; i+=1) {
-            if (buffer_data_uint8[i] > valbuffermax) {
-                valbuffermax = buffer_data_uint8[i];
-            }
-            if (buffer_data_uint8[i] < valbuffermin) {
-                valbuffermin = buffer_data_uint8[i];
-            }
-            if (buffer_data_uint8[i] == 0) {
-                saturated_0 += 1;
-            }
-            if (buffer_data_uint8[i] == 255) {
-                saturated_255 += 1;
-            }
-        }
-        float percent_saturated_0 = 100 * (float) saturated_0 / (float) buffer_size;
-        float percent_saturated_255 = 100 * (float) saturated_255 / (float) buffer_size;
-//        text = g_strdup_printf(" %d - %d ", valbuffermax, valbuffermin);
-        text = g_strdup_printf("(%.2f %%) %d – %d (%.2f %%)", percent_saturated_0, valbuffermin, valbuffermax, percent_saturated_255);
-//        text = g_strdup_printf("(%d / %d) (%.5f %% saturated)", saturated_0, buffer_size, percent_saturated_0);
-
-    }
+    // Saturation label (on the ROI in ROI mode, the ROI size is shown over the video)
+    text = saturation_text (viewer);
     gtk_label_set_label (GTK_LABEL (viewer->roi_label), text);
     g_free (text);
 

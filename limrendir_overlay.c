@@ -17,6 +17,10 @@
 #define OVERLAY_ROI_LINE_WIDTH 3.0
 #define OVERLAY_SHADE_ALPHA (2.0 / 3.0) // the region outside the ROI is shown at 1/3 of its brightness
 #define OVERLAY_ROI_DRAG_THRESHOLD 3.0  // a press and release closer than this (screen pixels) is a click, not a drag
+#define OVERLAY_ROI_COLOR 0.0, 0.75, 1.0 // blue-cyan (r, g, b)
+#define OVERLAY_LABEL_MARGIN 8.0        // distance between the ROI label and the corner of the image
+#define OVERLAY_LABEL_PADDING 5.0
+#define OVERLAY_LABEL_RADIUS 4.0
 
 // Matrix mapping image coordinates to the rotated / flipped image, for each videoflip method
 static void videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix)
@@ -34,8 +38,10 @@ static void videoflip_matrix (gint method, double width, double height, cairo_ma
     }
 }
 
-// Matrix mapping image coordinates to widget coordinates. Returns FALSE if there is no image to map.
-static gboolean overlay_image_to_widget_matrix (LrdViewer *viewer, GtkWidget *widget, cairo_matrix_t *matrix)
+// Matrix mapping image coordinates to widget coordinates, and (if not NULL) the rectangle of the widget where the
+// image is shown. Returns FALSE if there is no image to map.
+static gboolean overlay_image_to_widget_matrix_and_rect (LrdViewer *viewer, GtkWidget *widget, cairo_matrix_t *matrix,
+                                                         GstVideoRectangle *shown_rect)
 {
     int const width = viewer->display_image_width;
     int const height = viewer->display_image_height;
@@ -61,7 +67,14 @@ static gboolean overlay_image_to_widget_matrix (LrdViewer *viewer, GtkWidget *wi
     cairo_matrix_init_translate (&placement, result.x, result.y);
     cairo_matrix_scale (&placement, (double) result.w / shown_width, (double) result.h / shown_height);
     cairo_matrix_multiply (matrix, &flip, &placement); // first the flip, then the placement
+    if (shown_rect != NULL)
+        *shown_rect = result;
     return TRUE;
+}
+
+static gboolean overlay_image_to_widget_matrix (LrdViewer *viewer, GtkWidget *widget, cairo_matrix_t *matrix)
+{
+    return overlay_image_to_widget_matrix_and_rect (viewer, widget, matrix, NULL);
 }
 
 // Converts a point of the widget to image coordinates. Returns FALSE if there is no image.
@@ -94,6 +107,39 @@ static void overlay_grid_path (cairo_t *cr, GridType grid_type, int width, int h
     }
 }
 
+// Floating label with the ROI position and size, in the bottom left corner of the shown image
+static void overlay_draw_roi_label (LrdViewer *viewer, GtkWidget *widget, cairo_t *cr, const GstVideoRectangle *shown)
+{
+    g_autofree char *text = g_strdup_printf ("ROI: +%d +%d %dx%d",
+                                             viewer->roi_x, viewer->roi_y, viewer->roi_w, viewer->roi_h);
+    PangoLayout *layout = gtk_widget_create_pango_layout (widget, text);
+    int text_width, text_height;
+    pango_layout_get_pixel_size (layout, &text_width, &text_height);
+
+    double const padding = OVERLAY_LABEL_PADDING;
+    double const box_width = text_width + 2 * padding;
+    double const box_height = text_height + 2 * padding;
+    double const x = shown->x + OVERLAY_LABEL_MARGIN;
+    double const y = shown->y + shown->h - OVERLAY_LABEL_MARGIN - box_height;
+
+    // Rounded dark box
+    double const r = OVERLAY_LABEL_RADIUS;
+    cairo_new_sub_path (cr);
+    cairo_arc (cr, x + box_width - r, y + r, r, -G_PI / 2, 0);
+    cairo_arc (cr, x + box_width - r, y + box_height - r, r, 0, G_PI / 2);
+    cairo_arc (cr, x + r, y + box_height - r, r, G_PI / 2, G_PI);
+    cairo_arc (cr, x + r, y + r, r, G_PI, 3 * G_PI / 2);
+    cairo_close_path (cr);
+    cairo_set_source_rgba (cr, 0, 0, 0, 0.7);
+    cairo_fill (cr);
+
+    // Text, in the color of the ROI border
+    cairo_move_to (cr, x + padding, y + padding);
+    cairo_set_source_rgb (cr, OVERLAY_ROI_COLOR);
+    pango_cairo_show_layout (cr, layout);
+    g_object_unref (layout);
+}
+
 // Draws the overlay on top of the frame drawn by gtksink
 static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer)
 {
@@ -104,7 +150,8 @@ static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
         return FALSE;
 
     cairo_matrix_t matrix;
-    if (!overlay_image_to_widget_matrix (viewer, widget, &matrix))
+    GstVideoRectangle shown;
+    if (!overlay_image_to_widget_matrix_and_rect (viewer, widget, &matrix, &shown))
         return FALSE;
 
     cairo_save (cr);
@@ -144,8 +191,10 @@ static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
         cairo_restore (cr);
         cairo_set_line_width (cr, OVERLAY_ROI_LINE_WIDTH);
         cairo_set_line_join (cr, CAIRO_LINE_JOIN_MITER);
-        cairo_set_source_rgb (cr, 0.0, 0.75, 1.0);
+        cairo_set_source_rgb (cr, OVERLAY_ROI_COLOR);
         cairo_stroke (cr);
+
+        overlay_draw_roi_label (viewer, widget, cr, &shown);
     }
 
     cairo_restore (cr);
