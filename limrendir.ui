@@ -1177,7 +1177,7 @@ Copyright (C)
                               <object class="GtkImage">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
-                                <property name="icon-name">limrendir-zoom-in-symbolic</property>
+                                <property name="icon-name">zoom-in-symbolic</property>
                               </object>
                             </child>
                           </object>
@@ -1192,7 +1192,7 @@ Copyright (C)
                               <object class="GtkImage">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
-                                <property name="icon-name">limrendir-zoom-out-symbolic</property>
+                                <property name="icon-name">zoom-out-symbolic</property>
                               </object>
                             </child>
                           </object>
