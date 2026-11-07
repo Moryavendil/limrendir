@@ -412,6 +412,9 @@ activate (GApplication *application)
         // Custom G2L
     viewer->record_button = GTK_WIDGET (gtk_builder_get_object (builder, "record_button"));
     viewer->max_frame_rate_button = GTK_WIDGET (gtk_builder_get_object (builder, "max_frame_rate_button"));
+    viewer->frame_rate_hscale = GTK_WIDGET (gtk_builder_get_object (builder, "frame_rate_hscale"));
+    viewer->acquisition_popover = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_popover"));
+    viewer->frame_rate_max_outdated = TRUE;
 
     viewer->notification_revealer = GTK_WIDGET (gtk_builder_get_object (builder, "notification_revealer"));
     viewer->notification_label = GTK_WIDGET (gtk_builder_get_object (builder, "notification_label"));
@@ -482,6 +485,9 @@ activate (GApplication *application)
 							  G_CALLBACK (exposure_spin_cb), viewer);
 	viewer->exposure_hscale_changed = g_signal_connect (viewer->exposure_hscale, "value-changed",
 							    G_CALLBACK (exposure_scale_cb), viewer);
+	viewer->frame_rate_hscale_changed = g_signal_connect (viewer->frame_rate_hscale, "value-changed",
+							      G_CALLBACK (frame_rate_scale_cb), viewer);
+	g_signal_connect (viewer->acquisition_popover, "show", G_CALLBACK (acquisition_popover_show_cb), viewer);
 	viewer->auto_exposure_clicked = g_signal_connect (viewer->auto_exposure_toggle, "clicked",
 							  G_CALLBACK (auto_exposure_cb), viewer);
 	viewer->gain_spin_changed = g_signal_connect (viewer->gain_spin_button, "value-changed",

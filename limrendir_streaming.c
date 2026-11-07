@@ -634,6 +634,13 @@ void stop_video (LrdViewer *viewer)
         viewer->exposure_update_event = 0;
     }
 
+    // The next stream (maybe of another camera) needs a new maximum frame rate
+    if (viewer->frame_rate_max_update_event > 0) {
+        g_source_remove (viewer->frame_rate_max_update_event);
+        viewer->frame_rate_max_update_event = 0;
+    }
+    viewer->frame_rate_max_outdated = TRUE;
+
     if (viewer->gain_update_event > 0) {
         g_source_remove (viewer->gain_update_event);
         viewer->gain_update_event = 0;

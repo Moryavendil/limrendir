@@ -486,40 +486,41 @@ Copyright (C)
           </packing>
         </child>
         <child>
-          <object class="GtkToggleButton" id="max_frame_rate_button">
+          <object class="GtkBox">
             <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="receives-default">True</property>
+            <property name="can-focus">False</property>
+            <property name="spacing">6</property>
             <child>
-              <object class="GtkBox">
+              <object class="GtkHScale" id="frame_rate_hscale">
                 <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="spacing">5</property>
+                <property name="can-focus">True</property>
+                <property name="draw-value">False</property>
+              </object>
+              <packing>
+                <property name="expand">True</property>
+                <property name="fill">True</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkToggleButton" id="max_frame_rate_button">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">True</property>
+                <property name="tooltip-text" translatable="yes">Toggle maximum frame rate [B]</property>
                 <child>
                   <object class="GtkImage">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <property name="icon-name">caps-lock-symbolic</property>
                   </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkLabel">
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="label" translatable="yes">Use maximum available</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">1</property>
-                  </packing>
                 </child>
               </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
             </child>
           </object>
           <packing>
