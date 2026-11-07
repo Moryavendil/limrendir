@@ -46,6 +46,10 @@ void set_camera_control_widgets(LrdViewer *viewer)
     gtk_spin_button_set_increments (GTK_SPIN_BUTTON (viewer->black_level_spin_button), 1, 10);
 
     gtk_range_set_range (GTK_RANGE (viewer->exposure_hscale), 0.0, 1.0);
+    g_signal_handler_block (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
+    gtk_range_set_range (GTK_RANGE (viewer->frame_rate_hscale), 0.0, 1.0);
+    gtk_range_set_increments (GTK_RANGE (viewer->frame_rate_hscale), 0.01, 0.1);
+    g_signal_handler_unblock (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
     gtk_range_set_range (GTK_RANGE (viewer->gain_hscale), gain_min, gain_max);
     gtk_range_set_range (GTK_RANGE (viewer->black_level_hscale), black_level_min, black_level_max);
 
@@ -216,12 +220,14 @@ static gboolean frame_rate_scale_in_use = FALSE;
 static void set_frame_rate_scale_value (LrdViewer *viewer, double frame_rate) {
     if (frame_rate_scale_in_use)
         return;
+    double position = arv_viewer_value_to_log (frame_rate, viewer->frame_rate_min, viewer->frame_rate_max);
     g_signal_handler_block (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
-    gtk_range_set_value (GTK_RANGE (viewer->frame_rate_hscale), frame_rate);
+    gtk_range_set_value (GTK_RANGE (viewer->frame_rate_hscale), position);
     g_signal_handler_unblock (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
 }
 
-// Computes the range of the frame rate slider
+// Computes the range of the frame rate slider. Like the exposure slider, it is logarithmic: its position goes from 0
+// (minimum frame rate) to 1 (maximum frame rate).
 static void update_frame_rate_range (LrdViewer *viewer) {
     if (!ARV_IS_CAMERA (viewer->camera) || !arv_camera_is_frame_rate_available (viewer->camera, NULL))
         return;
@@ -231,18 +237,14 @@ static void update_frame_rate_range (LrdViewer *viewer) {
 
     arv_camera_get_frame_rate_bounds (viewer->camera, &viewer->frame_rate_min, NULL, NULL);
     viewer->frame_rate_max = compute_max_frame_rate (viewer);
+    // A logarithmic scale needs a positive minimum
+    if (viewer->frame_rate_min <= 0.)
+        viewer->frame_rate_min = viewer->frame_rate_max * 1e-4;
     if (viewer->frame_rate_max <= viewer->frame_rate_min)
-        viewer->frame_rate_max = viewer->frame_rate_min + 1.;
+        viewer->frame_rate_max = viewer->frame_rate_min * 10.;
     viewer->frame_rate_max_exposure = arv_camera_get_exposure_time (viewer->camera, NULL);
     viewer->frame_rate_max_outdated = FALSE;
     log_debug("Frame rate slider range: %g Hz - %g Hz", viewer->frame_rate_min, viewer->frame_rate_max);
-
-    g_signal_handler_block (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
-    gtk_range_set_range (GTK_RANGE (viewer->frame_rate_hscale), viewer->frame_rate_min, viewer->frame_rate_max);
-    gtk_range_set_increments (GTK_RANGE (viewer->frame_rate_hscale),
-                              (viewer->frame_rate_max - viewer->frame_rate_min) / 100.,
-                              (viewer->frame_rate_max - viewer->frame_rate_min) / 10.);
-    g_signal_handler_unblock (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
 
     set_frame_rate_scale_value (viewer, get_actual_frame_rate (viewer));
 }
@@ -271,6 +273,51 @@ void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer) {
         update_frame_rate_range (viewer);
 }
 
+// Draws a tick under the exposure slider at the frame period (see update_exposure_period_mark). It is drawn by hand:
+// the marks of GtkScale change its size, and moving them while it is shown makes GTK draw it with a stale size
+// ("Drawing a gadget with negative dimensions").
+gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer) {
+    if (viewer->exposure_period_mark < 0.)
+        return FALSE;
+
+    // The tick is under the center of the slider knob when the slider is at that position
+    GdkRectangle trough;
+    gint slider_start, slider_end;
+    gtk_range_get_range_rect (GTK_RANGE (widget), &trough);
+    gtk_range_get_slider_range (GTK_RANGE (widget), &slider_start, &slider_end);
+    double const slider_length = slider_end - slider_start;
+    double const x = floor (trough.x + slider_length / 2. + viewer->exposure_period_mark * (trough.width - slider_length)) + 0.5;
+    double const y = trough.y + trough.height / 2.;
+
+    GdkRGBA color;
+    GtkStyleContext *context = gtk_widget_get_style_context (widget);
+    gtk_style_context_get_color (context, gtk_style_context_get_state (context), &color);
+    cairo_set_source_rgba (cr, color.red, color.green, color.blue, 0.8 * color.alpha);
+    cairo_set_line_width (cr, 2.);
+    cairo_move_to (cr, x, y + 10.);
+    cairo_line_to (cr, x, MIN (y + 16., gtk_widget_get_allocated_height (widget)));
+    cairo_stroke (cr);
+
+    return FALSE;
+}
+
+// Puts a tick under the exposure slider at the frame period (1 / frame rate): beyond it, the exposure time limits
+// the frame rate. Only redrawn when it moves.
+static void update_exposure_period_mark (LrdViewer *viewer, double frame_rate) {
+    double position = -1.;
+
+    if (frame_rate > 0. && viewer->exposure_min > 0. && viewer->exposure_max > viewer->exposure_min) {
+        double period_us = G_USEC_PER_SEC / frame_rate;
+        if (period_us >= viewer->exposure_min && period_us <= viewer->exposure_max)
+            position = arv_viewer_value_to_log (period_us, viewer->exposure_min, viewer->exposure_max);
+    }
+
+    if (fabs (position - viewer->exposure_period_mark) < 1e-4)
+        return;
+    viewer->exposure_period_mark = position;
+    gtk_widget_queue_draw (viewer->exposure_hscale);
+}
+
 // Shows the actual frame rate in the entry and the slider, and updates what depends on it.
 // To be called whenever something that can change the actual frame rate was modified.
 void update_frame_rate_display (LrdViewer *viewer) {
@@ -279,6 +326,7 @@ void update_frame_rate_display (LrdViewer *viewer) {
     gtk_entry_set_text (GTK_ENTRY (viewer->frame_rate_entry), text);
     g_free (text);
     set_frame_rate_scale_value (viewer, frame_rate);
+    update_exposure_period_mark (viewer, frame_rate);
 
     burst_harmonize_nframes_and_duration (NULL, viewer);
 }
@@ -350,9 +398,10 @@ gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdVi
 // Slider at its right end: the maximum frame rate mode (as the button). Elsewhere: that frame rate.
 void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer)
 {
-    double frame_rate = gtk_range_get_value (range);
+    double position = gtk_range_get_value (range);
+    double frame_rate = arv_viewer_value_from_log (position, viewer->frame_rate_min, viewer->frame_rate_max);
 
-    if (frame_rate >= viewer->frame_rate_max) {
+    if (position >= 1.) {
         if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)))
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), TRUE);
         return;

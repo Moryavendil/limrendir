@@ -212,6 +212,7 @@ struct  _LrdViewer {
     gboolean frame_rate_max_outdated;
     double frame_rate_max_exposure;    // exposure time when the maximum was computed
     guint frame_rate_max_update_event;
+    double exposure_period_mark;    // position of the frame period tick on the exposure slider (< 0: none)
 
     // Notification
     GtkWidget *notification_revealer;
@@ -438,6 +439,8 @@ void frame_rate_limits_changed (LrdViewer *viewer);
 void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer);
 
 void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer);
+
+gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer);
 
 double impose_frame_rate (LrdViewer *viewer, double new_frame_rate);
 
