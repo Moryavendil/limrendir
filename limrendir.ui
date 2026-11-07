@@ -1098,7 +1098,7 @@ Copyright (C)
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
                             <property name="receives-default">True</property>
-                            <property name="tooltip-text" translatable="yes">Invert the displayed image [O]</property>
+                            <property name="tooltip-text" translatable="yes">Toggle image inversion [O]</property>
                             <child>
                               <object class="GtkImage">
                                 <property name="visible">True</property>
@@ -1142,7 +1142,7 @@ Copyright (C)
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
                             <property name="receives-default">True</property>
-                            <property name="tooltip-text" translatable="yes">Region of interest mode [R]</property>
+                            <property name="tooltip-text" translatable="yes">Toggle region of interest (ROI) mode [R]</property>
                             <child>
                               <object class="GtkImage">
                                 <property name="visible">True</property>
@@ -1157,7 +1157,7 @@ Copyright (C)
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
                             <property name="receives-default">True</property>
-                            <property name="tooltip-text" translatable="yes">Crop to the region of interest [C]</property>
+                            <property name="tooltip-text" translatable="yes">Crop to the ROI [C]</property>
                             <child>
                               <object class="GtkImage">
                                 <property name="visible">True</property>
@@ -1528,7 +1528,7 @@ Copyright (C)
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
-            <property name="tooltip-text" translatable="yes">Key bindings</property>
+            <property name="tooltip-text" translatable="yes">Show the key bindings [H]</property>
             <property name="popover">help_popover</property>
             <child>
               <object class="GtkImage">

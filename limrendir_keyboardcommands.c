@@ -5,41 +5,43 @@
 #include <logroutines.h>
 
 // HELP (h)
+// The descriptions are the same in the printed help, the help popover and the button tooltips (with [key] appended).
 void help(LrdViewer *viewer) {
         printf("%s***** Available key bindings *****%s\n", tcCYN, tcNRM);
 
-        printf("%s*** Quality Of Life ***%s                                                     \n", tcMAG, tcNRM);
-        printf("h .................. Show help                                                  \n");
-        printf("q  ................. Quit                                                       \n");
-        printf("F11 ................ Toggle fullscreen                                          \n");
-        printf("m .................. Toggle window maximization                                 \n");
-        printf("g .................. Cycle grid overlay                                         \n");
-        printf("o .................. Toggle image inversion                                     \n");
+        printf("%s*** General Commands ***%s\n", tcMAG, tcNRM);
+        printf("h .................. Show the key bindings\n");
+        printf("q .................. Quit\n");
+        printf("F11 ................ Toggle fullscreen\n");
+        printf("m .................. Toggle window maximization\n");
+        printf("g .................. Cycle grid overlay\n");
+        printf("o .................. Toggle image inversion\n");
     if (!is_record_button_active(viewer)) {
-        printf("%s*** Camera Control ***%s                                                      \n", tcMAG, tcNRM);
-        printf("+/- ................ Change exposure time (1 us)                                \n");
-        printf("Pg Up/Pg Down ...... Change exposure time (100 us)                              \n");
-        printf("b .................. Toggle use the maximum available frame rate                \n");
-        printf("n .................. Optimal exposure                                           \n");
+        printf("%s*** Camera Control ***%s\n", tcMAG, tcNRM);
+        printf("+/- ................ Change exposure time (1 us)\n");
+        printf("Pg Up/Pg Down ...... Change exposure time (100 us)\n");
+        printf("b .................. Toggle maximum frame rate\n");
+        printf("n .................. Optimize exposure\n");
 
-        printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
-        printf("a .................. See the largest possible field of view                     \n");
-        printf("z .................. Zoom in (x2) to the center of the field of view            \n");
-        printf("Z .................. Zoom out (x2) from the center of the field of view         \n");
-        printf("r .................. Toggle Region Of Interest mode                             \n");
-        printf("Ctrl+a ............. Fit the ROI to the field of view                           \n");
-        printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
-        printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
-        printf("arrows (keypad) .... Move ROI as a whole                                        \n");
-        printf("mouse drag ......... Draw a new ROI (in ROI mode)                               \n");
-        printf("c .................. Crop to the Region Of Interest                             \n");
+        printf("%s*** Field Of View Manipulation ***%s\n", tcMAG, tcNRM);
+        printf("a .................. See the largest possible field of view\n");
+        printf("z .................. Zoom in (x2)\n");
+        printf("Z .................. Zoom out (x2)\n");
+        printf("r .................. Toggle region of interest (ROI) mode\n");
+        printf("Ctrl+a ............. Fit the ROI to the field of view\n");
+        printf("e,s,d,f (E,S,D,F)... Move the upper left corner of the ROI\n");
+        printf("i,j,k,l (I,J,K,L)... Move the lower right corner of the ROI\n");
+        printf("arrows (keypad) .... Move the whole ROI\n");
+        printf("mouse drag ......... Draw a new ROI (in ROI mode)\n");
+        printf("c .................. Crop to the ROI\n");
     }
-        printf("%s*** Video Acquisition ***%s                                                   \n", tcMAG, tcNRM);
-        printf("SPACE .............. Toggle video acquisition                                   \n");
+        printf("%s*** Video Acquisition ***%s\n", tcMAG, tcNRM);
+        printf("SPACE .............. Start / stop recording\n");
 }
 
+
 void setup_help_popover (LrdViewer *viewer) {
-    // QOL
+    // GENERAL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_1), "<b>General Commands</b>\n"
                                                           "h\n"
                                                           "q\n"
@@ -48,7 +50,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                           "g\n"
                                                           "o");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_1), "\n"
-                                                                  "Print help\n"
+                                                                  "Show the key bindings\n"
                                                                   "Quit\n"
                                                                   "Toggle fullscreen\n"
                                                                   "Toggle window maximization\n"
@@ -63,36 +65,36 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_2), "\n"
                                                                   "Change exposure time (1 us)\n"
                                                                   "Change exposure time (100 us)\n"
-                                                                  "Toggle maximum frame rate \n"
+                                                                  "Toggle maximum frame rate\n"
                                                                   "Optimize exposure");
-    // ROI
+    // FIELD OF VIEW
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
                                                           "a\n"
                                                           "z\n"
                                                           "Z\n"
-                                                         "r\n"
-                                                         "Ctrl+a\n"
-                                                         "e,s,d,f \t\t(E,S,D,F)\n"
-                                                         "i,j,k,l \t\t(I,J,K,L)\n"
-                                                         "↑←↓→ \t(keypad)\n"
-                                                         "mouse drag\n"
-                                                         "c");
+                                                          "r\n"
+                                                          "Ctrl+a\n"
+                                                          "e,s,d,f \t\t(E,S,D,F)\n"
+                                                          "i,j,k,l \t\t(I,J,K,L)\n"
+                                                          "↑←↓→ \t(keypad)\n"
+                                                          "mouse drag\n"
+                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
                                                                   "Zoom in (x2)\n"
                                                                   "Zoom out (x2)\n"
-                                                                 "Toggle Region Of Interest mode\n"
-                                                                 "Fit the ROI to the field of view\n"
-                                                                 "Move upper left corner of ROI\n"
-                                                                 "Move lower right corner of ROI\n"
-                                                                 "Move ROI as a whole\n"
-                                                                 "Draw a new ROI (in ROI mode)\n"
-                                                                 "Crop to the Region Of Interest");
-    // VIDEO ACQU
+                                                                  "Toggle region of interest (ROI) mode\n"
+                                                                  "Fit the ROI to the field of view\n"
+                                                                  "Move the upper left corner of the ROI\n"
+                                                                  "Move the lower right corner of the ROI\n"
+                                                                  "Move the whole ROI\n"
+                                                                  "Draw a new ROI (in ROI mode)\n"
+                                                                  "Crop to the ROI");
+    // VIDEO ACQUISITION
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_4), "<b>Video Acquisition</b>\n"
-                                                         "SPACE");
+                                                          "SPACE");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_4), "\n"
-                                                                 "Toggle video acquisition");
+                                                                  "Start / stop recording");
 }
 
 // ROI MANIPULATION
