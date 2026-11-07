@@ -7,6 +7,14 @@ Limrendir allows to view and save a video stream from a Genicam compatible camer
 It is a mashup between Aravis Viewer, which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
 
 
+## Features
+
+* See the livestream of any Genicam camera
+* Record snapshots, or videos in different formats
+* Change the field of view of the camera and the recorded region of interest easily and precisely
+* More to come!
+
+
 ## How to install
 
 ### 1. GStreamer plugins
@@ -116,29 +124,33 @@ Limrendir is written in C and based on Aravis (0.8/0.10), gstreamer (1.0) and GT
 A consequent part of the code is directly burrowed or adapted from Aravis Viewer. My additions consist mainly of 
 
  * Smoother control of the acquisition and field of view parameters with key bindings routines inspired by gevCapture and
- * Recording capabilities, with different formats supported (at term).
+ * Recording capabilities, with different formats supported.
 
 I am not a professional software developer so the code quality might not be perfect. But hey, it works !
+
+
+## Technical information
+
+* Use option `log-level`to set the debug level (2=info (default), 3=debug, 4=trace)
+* The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
+* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
+* If another vendor's camera software is installed (e.g. Basler pylon, which sets `GENICAM_GENTL64_PATH`), aravis also sees USB3 cameras through that software's GenTL driver, so `arv-tool` lists them twice. Limrendir only lists the entry of aravis' own USB3 Vision driver; launch it with `--allow-duplicates` to also list the other one.
 
 
 ## To-Do list
 
 ? Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
 
-? Better grid (finer)
+! Choose the file name (and video type) **before** saving, save directly when space is pushed
+
+? Replace the rotate/tarsnform buttons by a down arrow button that makes a toolbar appears in which there is
+* Display options (non default values for black and white)
+* Metrics (in a separate, side bar: pxl value histogram, Fourier transform)
 
 ? More settings remembered between sessions:
-- the mp4 encoding options
-- the grid spacing (fine = 30 px / medium = 60 px / coarse = 120 px / medium (in px)
+- the grid spacing (fine = 60 px / medium = 120 px / coarse = 240 px)
 
 ? Add zebra patterns
-
-
-## Technical information
-
-* The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
-* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
-* If another vendor's camera software is installed (e.g. Basler pylon, which sets `GENICAM_GENTL64_PATH`), aravis also sees USB3 cameras through that software's GenTL driver, so `arv-tool` lists them twice. Limrendir only lists the entry of aravis' own USB3 Vision driver; launch it with `--allow-duplicates` to also list the other one.
 
 
 ## Licence
