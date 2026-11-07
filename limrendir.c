@@ -385,6 +385,7 @@ activate (GApplication *application)
 	viewer->transform_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "transform_toggle"));
 	viewer->flip_vertical_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_vertical_togglebutton"));
 	viewer->flip_horizontal_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_horizontal_togglebutton"));
+	viewer->invert_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "invert_togglebutton"));
     viewer->camera_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "camera_settings_button"));
     viewer->acquisition_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_settings_button"));
 
@@ -455,6 +456,7 @@ activate (GApplication *application)
 	                                                    G_CALLBACK (flip_horizontal_cb), viewer);
 	viewer->flip_vertical_clicked = g_signal_connect (viewer->flip_vertical_toggle, "clicked",
 	                                                  G_CALLBACK (flip_vertical_cb), viewer);
+	g_signal_connect (viewer->invert_toggle, "toggled", G_CALLBACK (invert_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "activate", G_CALLBACK (frame_rate_entry_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "focus-out-event", G_CALLBACK (frame_rate_entry_focus_cb), viewer);
 

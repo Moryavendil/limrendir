@@ -430,6 +430,67 @@ void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
     }
 }
 
+// Inverts the 8 bit colour (or luma / chroma) components of a frame in place: v -> 255 - v. The alpha channel and
+// the padding bytes (e.g. the x of BGRx) are left untouched.
+static void invert_video_frame (GstVideoFrame *frame)
+{
+    const GstVideoFormatInfo *finfo = frame->info.finfo;
+
+    for (guint c = 0; c < GST_VIDEO_FRAME_N_COMPONENTS (frame); c++) {
+        if (GST_VIDEO_FORMAT_INFO_HAS_ALPHA (finfo) && c == GST_VIDEO_COMP_A)
+            continue;
+        guint8 *data = GST_VIDEO_FRAME_COMP_DATA (frame, c);
+        const gint stride = GST_VIDEO_FRAME_COMP_STRIDE (frame, c);
+        const gint pstride = GST_VIDEO_FRAME_COMP_PSTRIDE (frame, c);
+        const gint width = GST_VIDEO_FRAME_COMP_WIDTH (frame, c);
+        const gint height = GST_VIDEO_FRAME_COMP_HEIGHT (frame, c);
+        for (gint y = 0; y < height; y++) {
+            guint8 *p = data + (gsize) y * stride;
+            for (gint x = 0; x < width; x++, p += pstride)
+                *p = 255 - *p;
+        }
+    }
+}
+
+// Pad probe on the sink pad of the display sink: inverts the frames when viewer->invert is set. Only the display is
+// affected (in a recording pipeline the frames are shared with the recording branch, hence the copy if needed).
+static GstPadProbeReturn invert_probe_cb (GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+    LrdViewer *viewer = data;
+    if (!viewer->invert)
+        return GST_PAD_PROBE_OK;
+
+    GstCaps *caps = gst_pad_get_current_caps (pad);
+    if (caps == NULL)
+        return GST_PAD_PROBE_OK;
+    GstVideoInfo video_info;
+    gboolean const valid = gst_video_info_from_caps (&video_info, caps);
+    gst_caps_unref (caps);
+    if (!valid)
+        return GST_PAD_PROBE_OK;
+
+    for (guint c = 0; c < GST_VIDEO_INFO_N_COMPONENTS (&video_info); c++) {
+        if (GST_VIDEO_INFO_COMP_DEPTH (&video_info, c) != 8 || GST_VIDEO_INFO_COMP_PSTRIDE (&video_info, c) <= 0) {
+            static gboolean warned = FALSE;
+            if (!warned)
+                log_warning ("Cannot invert the displayed images (format %s).",
+                             GST_VIDEO_INFO_NAME (&video_info));
+            warned = TRUE;
+            return GST_PAD_PROBE_OK;
+        }
+    }
+
+    GstBuffer *buffer = gst_buffer_make_writable (GST_PAD_PROBE_INFO_BUFFER (info));
+    GST_PAD_PROBE_INFO_DATA (info) = buffer;
+
+    GstVideoFrame frame;
+    if (gst_video_frame_map (&frame, &video_info, buffer, GST_MAP_READWRITE)) {
+        invert_video_frame (&frame);
+        gst_video_frame_unmap (&frame);
+    }
+    return GST_PAD_PROBE_OK;
+}
+
 // Creates the video sink (viewer->videosink) and adds it to the pipeline, without linking it.
 // The video is shown inside the window by gtksink (required by gstreamer_plugin_check).
 void add_display_sink (LrdViewer *viewer)
@@ -450,6 +511,10 @@ void add_display_sink (LrdViewer *viewer)
     gst_bin_add (GST_BIN (viewer->pipeline), viewer->videosink);
 
     g_object_set(G_OBJECT (viewer->videosink), "sync", FALSE, NULL);
+
+    GstPad *sink_pad = gst_element_get_static_pad (viewer->videosink, "sink");
+    gst_pad_add_probe (sink_pad, GST_PAD_PROBE_TYPE_BUFFER, invert_probe_cb, viewer, NULL);
+    gst_object_unref (sink_pad);
 }
 
 // Sets the source caps, plays the pipeline and starts the status bar updates.

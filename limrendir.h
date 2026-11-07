@@ -124,6 +124,7 @@ struct  _LrdViewer {
     guint rotation;
     gboolean flip_vertical;
     gboolean flip_horizontal;
+    gboolean invert;    // display the inverted image (the recordings and snapshots are not affected)
 
     double exposure_min, exposure_max;
 
@@ -158,6 +159,7 @@ struct  _LrdViewer {
     GtkWidget *zoom_out_button;
     GtkWidget *flip_vertical_toggle;
     GtkWidget *flip_horizontal_toggle;
+    GtkWidget *invert_toggle;
     GtkWidget *camera_settings_button;
     GtkWidget *acquisition_settings_button;
     // VIDEO
@@ -359,6 +361,10 @@ void flip_horizontal_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 void reset_image_transform (LrdViewer *viewer);
+
+// Inversion of the displayed image (o)
+void invert_cb (GtkToggleButton *toggle, LrdViewer *viewer);
+void toggle_invert (LrdViewer *viewer);
 
 // Snapshot saving
 gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const char *mime_type, GError **error);

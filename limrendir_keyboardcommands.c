@@ -13,13 +13,14 @@ void help(LrdViewer *viewer) {
         printf("q  ................. Quit                                                       \n");
         printf("F11 ................ Toggle fullscreen                                          \n");
         printf("m .................. Toggle window maximization                                 \n");
-        printf("g .................. Toggle grid                                                \n");
+        printf("g .................. Cycle grid overlay                                         \n");
+        printf("o .................. Toggle image inversion                                     \n");
     if (!is_record_button_active(viewer)) {
         printf("%s*** Camera Control ***%s                                                      \n", tcMAG, tcNRM);
         printf("+/- ................ Change exposure time (1 us)                                \n");
         printf("Pg Up/Pg Down ...... Change exposure time (100 us)                              \n");
         printf("b .................. Toggle use the maximum available frame rate                \n");
-        printf("n .................. Set the exposure to have a maximum contrast (experimental) \n");
+        printf("n .................. Optimal exposure                                           \n");
 
         printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
         printf("a .................. See the largest possible field of view                     \n");
@@ -44,13 +45,15 @@ void setup_help_popover (LrdViewer *viewer) {
                                                           "q\n"
                                                           "F11\n"
                                                           "m\n"
-                                                          "g");
+                                                          "g\n"
+                                                          "o");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_1), "\n"
                                                                   "Print help\n"
                                                                   "Quit\n"
                                                                   "Toggle fullscreen\n"
                                                                   "Toggle window maximization\n"
-                                                                  "Toggle grid");
+                                                                  "Cycle grid overlay\n"
+                                                                  "Toggle image inversion");
     // CAMERA CONTROL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_2), "<b>Camera Control</b>\n"
                                                           "+/-\n"
@@ -61,7 +64,7 @@ void setup_help_popover (LrdViewer *viewer) {
                                                                   "Change exposure time (1 us)\n"
                                                                   "Change exposure time (100 us)\n"
                                                                   "Toggle maximum frame rate \n"
-                                                                  "Optimize exposure (experimental)");
+                                                                  "Optimize exposure");
     // ROI
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
                                                           "a\n"
@@ -653,6 +656,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
 
         case GDK_KEY_g:
             toggle_grid(viewer);
+            break;
+        case GDK_KEY_o:
+            toggle_invert(viewer);
             break;
         case GDK_KEY_F11:
             toggle_fullscreen(viewer);

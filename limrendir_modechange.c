@@ -175,6 +175,19 @@ void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer)
     update_transform (viewer);
 }
 
+// The inversion is done on the frames reaching the display sink (see add_display_sink), so it is kept when a new
+// pipeline is created and it can be used during a recording.
+void invert_cb (GtkToggleButton *toggle, LrdViewer *viewer)
+{
+    viewer->invert = gtk_toggle_button_get_active (toggle);
+    log_debug ("Image inversion %s.", viewer->invert ? "on" : "off");
+}
+
+void toggle_invert (LrdViewer *viewer)
+{
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->invert_toggle), !viewer->invert);
+}
+
 // Back to no rotation and no flip, with the flip buttons released (from aravis c4a70719e).
 // Called when a new pipeline is created, since its videoflip element starts untransformed.
 void reset_image_transform (LrdViewer *viewer)
