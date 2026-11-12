@@ -503,11 +503,11 @@ Copyright (C)
               </packing>
             </child>
             <child>
-              <object class="GtkToggleButton" id="max_frame_rate_button">
+              <object class="GtkButton" id="max_frame_rate_button">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">True</property>
-                <property name="tooltip-text" translatable="yes">Toggle maximum frame rate [B]</property>
+                <property name="tooltip-text" translatable="yes">Set maximum frame rate [B]</property>
                 <child>
                   <object class="GtkImage">
                     <property name="visible">True</property>

@@ -478,7 +478,7 @@ activate (GApplication *application)
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
     g_signal_connect (viewer->record_button, "toggled", G_CALLBACK (record_button_update_tooltip), viewer);
-    g_signal_connect (viewer->max_frame_rate_button, "toggled", G_CALLBACK(apply_max_frame_rate_if_wanted), viewer);
+    g_signal_connect (viewer->max_frame_rate_button, "clicked", G_CALLBACK(max_frame_rate_button_cb), viewer);
 
 	viewer->camera_selected = g_signal_connect (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), "changed",
 						    G_CALLBACK (camera_selection_changed_cb), viewer);

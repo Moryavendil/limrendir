@@ -450,7 +450,9 @@ void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer);
 
 gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdViewer *viewer);
 
-void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer);
+// Sets the frame rate (once) to the maximum the camera can deliver with its current settings
+void set_max_frame_rate (LrdViewer *viewer);
+void max_frame_rate_button_cb (GtkButton *button, LrdViewer *viewer);
 
 
 // Mathematics routines for the sliders

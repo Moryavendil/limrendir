@@ -107,8 +107,6 @@ void set_camera_control_widgets(LrdViewer *viewer)
     g_signal_handler_unblock (viewer->auto_black_level_toggle, viewer->auto_black_level_clicked);
     g_signal_handler_unblock (viewer->auto_exposure_toggle, viewer->auto_exposure_clicked);
 
-    apply_max_frame_rate_if_wanted (NULL, viewer);
-
 //    static gboolean initialization = TRUE;
 //    // BURST
 //    g_signal_handler_block (viewer->burst_nframes_radiobutton, viewer->burst_control_changed);
@@ -191,10 +189,6 @@ static double compute_max_frame_rate (LrdViewer *viewer) {
     double resulting;
     if (!read_resulting_frame_rate (viewer, &resulting))
         return max_frame_rate;      // nothing better to rely on
-
-    // In 'maximum frame rate' mode, the maximum is already requested
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)))
-        return resulting;
 
     // Without frame rate limit (AcquisitionFrameRateEnable off, e.g. Basler), the camera already runs at its maximum.
     // arv_camera_set_frame_rate turns that limit on, so it must be restored afterwards.
@@ -363,21 +357,13 @@ void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus) 
     const char *text = gtk_entry_get_text (entry);
 
     // The entry shows the actual frame rate. If it was not edited, there is nothing to do
-    // (re-applying it would e.g. replace a 'maximum' request by the current, exposure-dependent rate).
+    // (re-applying it could e.g. replace a requested rate by the current, exposure-limited one).
     char *displayed = g_strdup_printf ("%g", get_actual_frame_rate (viewer));
     gboolean unchanged = g_str_equal (text, displayed);
     g_free (displayed);
 
-    if (!unchanged) {
+    if (!unchanged)
         impose_frame_rate (viewer, g_strtod (text, NULL));
-
-        // A frame rate was set by hand: we are no longer in 'maximum frame rate' mode
-        double max_frame_rate;
-        arv_camera_get_frame_rate_bounds (viewer->camera, NULL, &max_frame_rate, NULL);
-        if (arv_camera_get_frame_rate (viewer->camera, NULL) != max_frame_rate) {
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), FALSE);
-        }
-    }
 
     if (grab_focus)
         gtk_widget_grab_focus (GTK_WIDGET (entry));
@@ -395,36 +381,32 @@ gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdVi
     return FALSE;
 }
 
-// Slider at its right end: the maximum frame rate mode (as the button). Elsewhere: that frame rate.
+// The slider goes from the minimum to the maximum frame rate (at its right end)
 void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer)
 {
     double position = gtk_range_get_value (range);
     double frame_rate = arv_viewer_value_from_log (position, viewer->frame_rate_min, viewer->frame_rate_max);
 
-    if (position >= 1.) {
-        if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)))
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), TRUE);
-        return;
-    }
-
     frame_rate_scale_in_use = TRUE;
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), FALSE);
     impose_frame_rate (viewer, frame_rate);
     frame_rate_scale_in_use = FALSE;
 }
 
-void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer) {
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button))) {
-        log_trace("Setting frame rate to the maximum available");
+// Sets the frame rate to the maximum the camera can deliver with its current settings (button and b key).
+// It is set once, as a value: it is not changed afterwards when the settings change.
+void set_max_frame_rate (LrdViewer *viewer) {
+    if (!ARV_IS_CAMERA (viewer->camera) || !arv_camera_is_frame_rate_available (viewer->camera, NULL))
+        return;
+    if (viewer->video_controls_locked)
+        return;
 
-        // Request the highest rate the camera accepts; the camera then runs as fast as its settings allow
-        double max_frame_rate;
-        arv_camera_get_frame_rate_bounds(viewer->camera, NULL, &max_frame_rate, NULL);
+    update_frame_rate_range (viewer);   // computes the maximum, which also updates the slider
+    double actual_frame_rate = impose_frame_rate (viewer, viewer->frame_rate_max);
+    log_info("New frame rate set (maximum possible): %g Hz", actual_frame_rate);
+}
 
-        double actual_frame_rate = impose_frame_rate(viewer, max_frame_rate);
-
-        log_info("New frame rate set (maximum possible): %g Hz", actual_frame_rate);
-    }
+void max_frame_rate_button_cb (GtkButton *button, LrdViewer *viewer) {
+    set_max_frame_rate (viewer);
 }
 
 
@@ -688,7 +670,7 @@ static gboolean lo_tested_bs, hi_tested_bs;
 static int n_steps_bs;
 static double initial_exposure_bs;
 static gint64 search_start_time_bs;
-// Requested frame rate before the search (restored at the end; e.g. the maximum value in 'max frame rate' mode)
+// Requested frame rate before the search (restored at the end)
 static double initial_frame_rate;
 
 void initialize_best_exposure_search (LrdViewer *viewer) {
@@ -713,7 +695,6 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     gtk_widget_set_sensitive(viewer->help_button, TRUE);
     start_key_listener(viewer);
     impose_frame_rate(viewer, initial_frame_rate);
-    apply_max_frame_rate_if_wanted(NULL, viewer);
 }
 
 // Waits for the next frame during the search. Returns NULL if the camera sends nothing for too long
