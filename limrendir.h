@@ -150,6 +150,7 @@ struct  _LrdViewer {
     GtkWidget *snapshot_button;
     GtkWidget *rotate_cw_button;
     GtkWidget *transform_toggle;
+    GtkWidget *transform_bar;
     GtkWidget *roi_toggle;
     gulong roi_toggle_clicked;
     gboolean video_controls_locked;    // during a recording or an exposure search
@@ -350,6 +351,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode);
 // VIDEO MODE
 // Enables or disables the controls of the video mode (settings, snapshot, back, rotation, flips)
 void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive);
+void camera_settings_popover_closed_cb (GtkPopover *popover, LrdViewer *viewer);
 
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer);
 

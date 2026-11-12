@@ -383,6 +383,7 @@ activate (GApplication *application)
 
 	viewer->rotate_cw_button = GTK_WIDGET (gtk_builder_get_object (builder, "rotate_cw_button"));
 	viewer->transform_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "transform_toggle"));
+	viewer->transform_bar = GTK_WIDGET (gtk_builder_get_object (builder, "transform_bar"));
 	viewer->flip_vertical_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_vertical_togglebutton"));
 	viewer->flip_horizontal_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "flip_horizontal_togglebutton"));
 	viewer->invert_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "invert_togglebutton"));
@@ -491,6 +492,7 @@ activate (GApplication *application)
 	viewer->frame_rate_hscale_changed = g_signal_connect (viewer->frame_rate_hscale, "value-changed",
 							      G_CALLBACK (frame_rate_scale_cb), viewer);
 	g_signal_connect (viewer->acquisition_popover, "show", G_CALLBACK (acquisition_popover_show_cb), viewer);
+	g_signal_connect (viewer->acquisition_popover, "closed", G_CALLBACK (camera_settings_popover_closed_cb), viewer);
 	g_signal_connect_after (viewer->exposure_hscale, "draw", G_CALLBACK (exposure_scale_draw_cb), viewer);
 	viewer->auto_exposure_clicked = g_signal_connect (viewer->auto_exposure_toggle, "clicked",
 							  G_CALLBACK (auto_exposure_cb), viewer);

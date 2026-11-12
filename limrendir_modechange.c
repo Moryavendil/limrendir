@@ -109,9 +109,13 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
 }
 
 // Enables or disables the video mode controls that must not be used during a recording or an exposure search
+// A menu button made insensitive hides its popover (GTK does it): while the camera settings popover is open (an exposure
+// search can be started from it), its button is left sensitive so that it stays open, and the popover content is greyed
+// out instead by the caller. The button is greyed out when the popover closes (camera_settings_popover_closed_cb).
 void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
 {
-    gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
+    if (sensitive || !gtk_widget_get_visible (viewer->acquisition_popover))
+        gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
     gtk_widget_set_sensitive (viewer->acquisition_settings_button, sensitive);
     gtk_widget_set_sensitive (viewer->snapshot_button, sensitive);
     gtk_widget_set_sensitive (viewer->back_button, sensitive);
@@ -122,6 +126,14 @@ void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
     gtk_widget_set_sensitive (viewer->zoom_in_button, sensitive);
     viewer->video_controls_locked = !sensitive;
     update_fov_buttons (viewer);    // crop, global view and zoom out
+}
+
+// Greys out the camera settings button when its popover is closed while the controls are locked
+// (see set_video_controls_sensitive)
+void camera_settings_popover_closed_cb (GtkPopover *popover, LrdViewer *viewer)
+{
+    if (viewer->video_controls_locked)
+        gtk_widget_set_sensitive (viewer->camera_settings_button, FALSE);
 }
 
 // VIDEO MODE

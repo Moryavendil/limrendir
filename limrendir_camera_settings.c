@@ -674,13 +674,23 @@ static gint64 search_start_time_bs;
 // Requested frame rate before the search (restored at the end)
 static double initial_frame_rate;
 
+// Greys out, or restores, everything the user could use during the search: the video mode buttons, the transform bar
+// and the content of the camera settings popover, which stays open if it is (the search can be started from it).
+// Making the containers insensitive leaves the sensitivity of each of their widgets as it was, so it is restored as is.
+static void set_exposure_search_lock (LrdViewer *viewer, gboolean locked) {
+    set_video_controls_sensitive (viewer, !locked);
+    gtk_widget_set_sensitive (viewer->record_button, !locked);
+    gtk_widget_set_sensitive (viewer->help_button, !locked);
+    gtk_widget_set_sensitive (viewer->transform_toggle, !locked);
+    gtk_widget_set_sensitive (viewer->transform_bar, !locked);
+    gtk_widget_set_sensitive (gtk_bin_get_child (GTK_BIN (viewer->acquisition_popover)), !locked);
+}
+
 void initialize_best_exposure_search (LrdViewer *viewer) {
     log_info("Searching for the best exposure time...");
     stop_key_listener(viewer);
     g_signal_handler_block (viewer->stream, viewer->new_buffer_available_video);
-    set_video_controls_sensitive(viewer, FALSE);
-    gtk_widget_set_sensitive(viewer->record_button, FALSE);
-    gtk_widget_set_sensitive(viewer->help_button, FALSE);
+    set_exposure_search_lock(viewer, TRUE);
     update_exposure_cb(viewer);
     log_trace("Starting best exposure search.");
 }
@@ -691,9 +701,7 @@ void finalize_best_exposure_search (LrdViewer *viewer) {
     log_info("Best exposure time: %.1f us (%d measurements, %.1f s)", arv_camera_get_exposure_time(viewer->camera, NULL),
              n_steps_bs, (double) (g_get_monotonic_time() - search_start_time_bs) / G_USEC_PER_SEC);
     g_signal_handler_unblock(viewer->stream, viewer->new_buffer_available_video);
-    set_video_controls_sensitive(viewer, TRUE);
-    gtk_widget_set_sensitive(viewer->record_button, TRUE);
-    gtk_widget_set_sensitive(viewer->help_button, TRUE);
+    set_exposure_search_lock(viewer, FALSE);
     start_key_listener(viewer);
     impose_frame_rate(viewer, initial_frame_rate);
 }
@@ -861,8 +869,10 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
     hi_tested_bs = FALSE;
     log_debug("Searching between %.1f us and %.1f us (current frame rate %.2f fps)", min_exposure, max_exposure, frame_rate);
 
-    // One measurement per step; the steps are separated by short pauses so that the window is redrawn
-    g_timeout_add (10, best_exposure_search_next_step, viewer);
+    // One measurement per step; the steps are separated by short pauses so that the window is redrawn. Each step
+    // blocks for a while: with a priority above the redraw one, it would always be due first and the window
+    // (greyed out controls, image) would not be redrawn before the end of the search.
+    g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE, 10, best_exposure_search_next_step, viewer, NULL);
 }
 
 // Optimize exposure button: same as the n key
