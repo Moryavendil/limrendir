@@ -32,22 +32,25 @@ On recent distributions (e.g. Debian 13), the packaged Aravis is recent enough:
 
     sudo apt install libaravis-dev aravis-tools
     
-#### Installing from source
+#### Installing Aravis from source
 
-First install its dependencies:
+If you need a recent version of Aravis, start by downloading the latest stable [release](https://github.com/AravisProject/aravis/releases)
 
-    sudo apt install libxml2-dev libglib2.0-dev cmake libusb-1.0-0-dev gobject-introspection \
-                     libgtk-3-dev gtk-doc-tools xsltproc libgstreamer1.0-dev \
-                     libgstreamer-plugins-base1.0-dev \
-                     libgirepository1.0-dev gettext meson ninja-build
+```
+wget https://github.com/AravisProject/aravis/archive/refs/tags/0.8.36.tar.gz -O aravis-0.8.36.tar.gz
+tar -xzf aravis-0.8.36.tar.gz
+cd aravis-0.8.36
+```
 
-Then [build and install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html), and refresh the list of installed libraries (otherwise limrendir fails to start with "error while loading shared libraries: libaravis..."):
+And then follow the [official instructions](https://aravisproject.github.io/aravis/aravis-stable/building.html). 
+
+Finally, refresh the list of installed libraries (otherwise limrendir fails to start with "error while loading shared libraries: libaravis..."):
 
     sudo ldconfig
 
 ### 3. Limrendir
 
-Install what is needed to compile it (already there if you built Aravis from source):
+Install the dependencies:
 
     sudo apt install cmake libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libusb-1.0-0-dev
 
@@ -62,6 +65,8 @@ Download this project and compile it:
 
 Use option `--help` to know about the available options.
 
+## How to use
+
 ### Trying limrendir without a camera
 
 Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
@@ -72,12 +77,25 @@ Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
 
 To see the cameras available to aravis, use `arv-tool`. If it does not show your camera, try running it as an administrator.
 
-For USB camera, if `arv-tool` only finds your camera when ran as administrator, you can create a new udev rule, i.e. an `aravis.rules` file in the `/etc/udev/rules.d` directory (see [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html#permissions)).
+#### USB Cameras
+
+If `arv-tool` only finds your camera when ran as administrator, it is a problem of USB authorizations. You can solve this by creating a new udev rule, i.e. an `aravis.rules` file in the `/etc/udev/rules.d` directory (see [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html#permissions)).
 
 One-liner for Debian/Ubuntu:
 
     echo 'SUBSYSTEM=="usb", ATTRS{bDeviceClass}=="ef", ATTRS{bDeviceSubClass}=="02", ATTRS{bDeviceProtocol}=="01", ENV{ID_USB_INTERFACES}=="*:ef0500:*", MODE="0666"' | sudo tee /etc/udev/rules.d/aravis.rules
 
+#### Ethernet cameras
+
+* Check that the camera is powered, whether directly or using Power-over-Ethernet injector (normal PC Ethernet ports provides no power to the camera).
+* heck that the connection is suitable. In GNOME network manager, 
+	- In the Identity tab, set MTU to 9000.
+	- In the IPv4 tab, choose Link-Local Only.
+	- In the IPv6 tab, choose Disable, then click Apply.
+
+Then disconnect and reconnect the cable.
+
+The result of `ip link` corresponding to the ethernet port (you can check which it is using `nmcli device`) should show `state UP`. If it says `NO-CARRIER`, the cable is the issue.
 
 ### Missing frames
 
