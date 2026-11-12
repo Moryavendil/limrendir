@@ -412,6 +412,7 @@ activate (GApplication *application)
         // Custom G2L
     viewer->record_button = GTK_WIDGET (gtk_builder_get_object (builder, "record_button"));
     viewer->max_frame_rate_button = GTK_WIDGET (gtk_builder_get_object (builder, "max_frame_rate_button"));
+    viewer->best_exposure_button = GTK_WIDGET (gtk_builder_get_object (builder, "best_exposure_button"));
     viewer->frame_rate_hscale = GTK_WIDGET (gtk_builder_get_object (builder, "frame_rate_hscale"));
     viewer->acquisition_popover = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_popover"));
     viewer->frame_rate_max_outdated = TRUE;
@@ -479,6 +480,7 @@ activate (GApplication *application)
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);
     g_signal_connect (viewer->record_button, "toggled", G_CALLBACK (record_button_update_tooltip), viewer);
     g_signal_connect (viewer->max_frame_rate_button, "clicked", G_CALLBACK(max_frame_rate_button_cb), viewer);
+    g_signal_connect (viewer->best_exposure_button, "clicked", G_CALLBACK(best_exposure_button_cb), viewer);
 
 	viewer->camera_selected = g_signal_connect (gtk_tree_view_get_selection (GTK_TREE_VIEW (viewer->camera_tree)), "changed",
 						    G_CALLBACK (camera_selection_changed_cb), viewer);

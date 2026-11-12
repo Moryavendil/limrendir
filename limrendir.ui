@@ -427,11 +427,43 @@ Copyright (C)
           </packing>
         </child>
         <child>
-          <object class="GtkHScale" id="exposure_hscale">
+          <object class="GtkBox">
             <property name="width-request">200</property>
             <property name="visible">True</property>
-            <property name="can-focus">True</property>
-            <property name="draw-value">False</property>
+            <property name="can-focus">False</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkHScale" id="exposure_hscale">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="draw-value">False</property>
+              </object>
+              <packing>
+                <property name="expand">True</property>
+                <property name="fill">True</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="best_exposure_button">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">True</property>
+                <property name="tooltip-text" translatable="yes">Optimize exposure [N]</property>
+                <child>
+                  <object class="GtkImage">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="icon-name">display-brightness-symbolic</property>
+                  </object>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
           </object>
           <packing>
             <property name="left-attach">4</property>

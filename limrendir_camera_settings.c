@@ -72,6 +72,7 @@ void set_camera_control_widgets(LrdViewer *viewer)
     is_exposure_available = arv_camera_is_exposure_time_available (viewer->camera, NULL);
     gtk_widget_set_sensitive (viewer->exposure_hscale, is_exposure_available);
     gtk_widget_set_sensitive (viewer->exposure_spin_button, is_exposure_available);
+    gtk_widget_set_sensitive (viewer->best_exposure_button, is_exposure_available);
 
     g_signal_handler_unblock (viewer->gain_hscale, viewer->gain_hscale_changed);
     g_signal_handler_unblock (viewer->gain_spin_button, viewer->gain_spin_changed);
@@ -862,4 +863,13 @@ void best_exposure_search_nonblocking (LrdViewer *viewer) {
 
     // One measurement per step; the steps are separated by short pauses so that the window is redrawn
     g_timeout_add (10, best_exposure_search_next_step, viewer);
+}
+
+// Optimize exposure button: same as the n key
+void best_exposure_button_cb (GtkButton *button, LrdViewer *viewer) {
+    if (!ARV_IS_CAMERA (viewer->camera) || !arv_camera_is_exposure_time_available (viewer->camera, NULL))
+        return;
+    if (viewer->video_controls_locked || is_record_button_active (viewer))
+        return;
+    best_exposure_search_nonblocking (viewer);
 }

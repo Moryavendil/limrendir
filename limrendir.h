@@ -204,6 +204,7 @@ struct  _LrdViewer {
     // Custom G2L
     GtkWidget *record_button;
     GtkWidget *max_frame_rate_button;
+    GtkWidget *best_exposure_button;
     GtkWidget *frame_rate_hscale;
     GtkWidget *acquisition_popover;    // the camera settings popover
     // Range of the frame rate slider. The maximum is what the camera can actually deliver with its current settings
@@ -529,6 +530,9 @@ void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
         gboolean best_exposure_search_next_step(void *data);
 
         void best_exposure_search_nonblocking (LrdViewer *viewer);
+
+// Optimize exposure button (same as the n key)
+        void best_exposure_button_cb (GtkButton *button, LrdViewer *viewer);
 
 // KEYBOARD ROUTINES
 // Help popover
