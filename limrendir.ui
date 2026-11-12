@@ -1210,7 +1210,7 @@ Copyright (C)
                               <object class="GtkImage">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
-                                <property name="icon-name">zoom-fit-best-symbolic</property>
+                                <property name="icon-name">limrendir-whole-view-symbolic</property>
                               </object>
                             </child>
                           </object>
