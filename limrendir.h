@@ -208,11 +208,11 @@ struct  _LrdViewer {
     GtkWidget *best_exposure_button;
     GtkWidget *frame_rate_hscale;
     GtkWidget *acquisition_popover;    // the camera settings popover
-    // Range of the frame rate slider. The maximum is what the camera can actually deliver with its current settings
-    // (see compute_max_frame_rate): it is recomputed only when it may have changed and the popover is shown.
+    // Range of the frame rate slider. The maximum is what the camera can deliver with its current settings, whatever
+    // the exposure time (see compute_max_frame_rate): it is recomputed only when it may have changed and the
+    // popover is shown.
     double frame_rate_min, frame_rate_max;
     gboolean frame_rate_max_outdated;
-    double frame_rate_max_exposure;    // exposure time when the maximum was computed
     guint frame_rate_max_update_event;
     double exposure_period_mark;    // position of the frame period tick on the exposure slider (< 0: none)
     double frame_rate_exposure_mark;    // position of the 1 / exposure tick on the frame rate slider (< 0: none)
@@ -436,7 +436,7 @@ double get_actual_frame_rate (LrdViewer *viewer);
 
 void update_frame_rate_display (LrdViewer *viewer);
 
-// To be called when a setting that can change the maximum frame rate (exposure, region, binning, pixel format...)
+// To be called when a setting that can change the maximum frame rate (region, binning, pixel format...)
 // was modified: updates the frame rate display and, when needed, the range of the frame rate slider.
 void frame_rate_limits_changed (LrdViewer *viewer);
 
