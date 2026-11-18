@@ -316,6 +316,21 @@ void frame_rate_limits_changed (LrdViewer *viewer) {
     update_frame_rate_display (viewer);
 }
 
+// A field of view change can change the frame rate without it being asked for: the camera keeps the requested rate
+// (AcquisitionFrameRate) and runs as fast as it can up to it. E.g. on a Basler, after asking for 500 Hz on a small
+// region, the whole field of view runs at 160 Hz, and cropping again goes back to 500 Hz.
+// 1e-3 relative tolerance: the resulting rate is rounded to what the camera timings allow.
+void warn_if_fov_changed_frame_rate (LrdViewer *viewer) {
+    double before = viewer->frame_rate_before_fov_change;
+    viewer->frame_rate_before_fov_change = -1.;
+    if (before <= 0. || !ARV_IS_CAMERA (viewer->camera))
+        return;
+
+    double after = get_actual_frame_rate (viewer);
+    if (fabs (after - before) > 1e-3 * MAX (after, before))
+        log_warning("Frame rate changed with the field of view: %g Hz -> %g Hz.", before, after);
+}
+
 void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer) {
     if (viewer->frame_rate_max_outdated)
         update_frame_rate_range (viewer);

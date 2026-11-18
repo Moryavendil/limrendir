@@ -68,6 +68,9 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
             gtk_header_bar_set_title (GTK_HEADER_BAR (viewer->main_headerbar), "Limrendir");
             gtk_header_bar_set_subtitle (GTK_HEADER_BAR (viewer->main_headerbar), NULL);
 
+            // The field of view (region, binning, pixel format) can only be changed out of the video: remember the
+            // frame rate, to warn if it is not the same when the video comes back (see warn_if_fov_changed_frame_rate)
+            viewer->frame_rate_before_fov_change = ARV_IS_STREAM (viewer->stream) ? get_actual_frame_rate (viewer) : -1.;
 
             stop_video (viewer);
             break;
@@ -85,6 +88,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
             g_free (subtitle);
 
             start_video (viewer);
+            warn_if_fov_changed_frame_rate (viewer);
 
             start_key_listener(viewer);
             break;
@@ -631,6 +635,9 @@ void camera_selection_changed_cb (GtkTreeSelection *selection, LrdViewer *viewer
 
 gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 {
+    // Another camera: its frame rate is not to be compared with the previous one (see warn_if_fov_changed_frame_rate)
+    viewer->frame_rate_before_fov_change = -1.;
+
     GtkTreeIter iter;
     GtkListStore *list_store;
     gint64 *pixel_formats;

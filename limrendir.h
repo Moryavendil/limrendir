@@ -216,6 +216,7 @@ struct  _LrdViewer {
     guint frame_rate_max_update_event;
     double exposure_period_mark;    // position of the frame period tick on the exposure slider (< 0: none)
     double frame_rate_exposure_mark;    // position of the 1 / exposure tick on the frame rate slider (< 0: none)
+    double frame_rate_before_fov_change;    // actual frame rate when the video was left (< 0: none), see select_mode
 
     // Notification
     GtkWidget *notification_revealer;
@@ -439,6 +440,9 @@ void update_frame_rate_display (LrdViewer *viewer);
 // To be called when a setting that can change the maximum frame rate (region, binning, pixel format...)
 // was modified: updates the frame rate display and, when needed, the range of the frame rate slider.
 void frame_rate_limits_changed (LrdViewer *viewer);
+
+// Warns when the actual frame rate is not the one before the video was left (see select_mode), e.g. after a crop
+void warn_if_fov_changed_frame_rate (LrdViewer *viewer);
 
 void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer);
 gboolean frame_rate_scale_button_press_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer);

@@ -419,6 +419,7 @@ activate (GApplication *application)
     viewer->frame_rate_max_outdated = TRUE;
     viewer->exposure_period_mark = -1.;
     viewer->frame_rate_exposure_mark = -1.;
+    viewer->frame_rate_before_fov_change = -1.;
 
     viewer->notification_revealer = GTK_WIDGET (gtk_builder_get_object (builder, "notification_revealer"));
     viewer->notification_label = GTK_WIDGET (gtk_builder_get_object (builder, "notification_label"));
