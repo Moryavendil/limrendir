@@ -221,6 +221,26 @@ static void set_frame_rate_scale_value (LrdViewer *viewer, double frame_rate) {
     g_signal_handler_unblock (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
 }
 
+// Puts a tick under the frame rate slider at 1 / exposure time: beyond it, the exposure time limits the frame rate.
+// It mirrors the frame period tick on the exposure slider (see update_exposure_period_mark). Only redrawn when it moves.
+static void update_frame_rate_exposure_mark (LrdViewer *viewer) {
+    double position = -1.;
+
+    if (ARV_IS_CAMERA (viewer->camera) && viewer->frame_rate_min > 0. && viewer->frame_rate_max > viewer->frame_rate_min) {
+        double exposure_us = arv_camera_get_exposure_time (viewer->camera, NULL);
+        if (exposure_us > 0.) {
+            double frame_rate = G_USEC_PER_SEC / exposure_us;
+            if (frame_rate >= viewer->frame_rate_min && frame_rate <= viewer->frame_rate_max)
+                position = arv_viewer_value_to_log (frame_rate, viewer->frame_rate_min, viewer->frame_rate_max);
+        }
+    }
+
+    if (fabs (position - viewer->frame_rate_exposure_mark) < 1e-4)
+        return;
+    viewer->frame_rate_exposure_mark = position;
+    gtk_widget_queue_draw (viewer->frame_rate_hscale);
+}
+
 // Computes the range of the frame rate slider. Like the exposure slider, it is logarithmic: its position goes from 0
 // (minimum frame rate) to 1 (maximum frame rate).
 static void update_frame_rate_range (LrdViewer *viewer) {
@@ -242,6 +262,7 @@ static void update_frame_rate_range (LrdViewer *viewer) {
     log_debug("Frame rate slider range: %g Hz - %g Hz", viewer->frame_rate_min, viewer->frame_rate_max);
 
     set_frame_rate_scale_value (viewer, get_actual_frame_rate (viewer));
+    update_frame_rate_exposure_mark (viewer);
 }
 
 static gboolean update_frame_rate_range_cb (gpointer data) {
@@ -268,11 +289,11 @@ void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer) {
         update_frame_rate_range (viewer);
 }
 
-// Draws a tick under the exposure slider at the frame period (see update_exposure_period_mark). It is drawn by hand:
-// the marks of GtkScale change its size, and moving them while it is shown makes GTK draw it with a stale size
+// Draws a tick under a slider at the given position (0 to 1; < 0: no tick). It is drawn by hand: the marks of
+// GtkScale change its size, and moving them while it is shown makes GTK draw it with a stale size
 // ("Drawing a gadget with negative dimensions").
-gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer) {
-    if (viewer->exposure_period_mark < 0.)
+static gboolean draw_scale_mark (GtkWidget *widget, cairo_t *cr, double mark) {
+    if (mark < 0.)
         return FALSE;
 
     // The tick is under the center of the slider knob when the slider is at that position
@@ -281,7 +302,7 @@ gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
     gtk_range_get_range_rect (GTK_RANGE (widget), &trough);
     gtk_range_get_slider_range (GTK_RANGE (widget), &slider_start, &slider_end);
     double const slider_length = slider_end - slider_start;
-    double const x = floor (trough.x + slider_length / 2. + viewer->exposure_period_mark * (trough.width - slider_length)) + 0.5;
+    double const x = floor (trough.x + slider_length / 2. + mark * (trough.width - slider_length)) + 0.5;
     double const y = trough.y + trough.height / 2.;
 
     GdkRGBA color;
@@ -294,6 +315,16 @@ gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
     cairo_stroke (cr);
 
     return FALSE;
+}
+
+// Tick under the exposure slider at the frame period (see update_exposure_period_mark)
+gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer) {
+    return draw_scale_mark (widget, cr, viewer->exposure_period_mark);
+}
+
+// Tick under the frame rate slider at 1 / exposure time (see update_frame_rate_exposure_mark)
+gboolean frame_rate_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer) {
+    return draw_scale_mark (widget, cr, viewer->frame_rate_exposure_mark);
 }
 
 // Puts a tick under the exposure slider at the frame period (1 / frame rate): beyond it, the exposure time limits
@@ -322,6 +353,7 @@ void update_frame_rate_display (LrdViewer *viewer) {
     g_free (text);
     set_frame_rate_scale_value (viewer, frame_rate);
     update_exposure_period_mark (viewer, frame_rate);
+    update_frame_rate_exposure_mark (viewer);
 
     burst_harmonize_nframes_and_duration (NULL, viewer);
 }
