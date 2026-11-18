@@ -492,6 +492,10 @@ activate (GApplication *application)
 							    G_CALLBACK (exposure_scale_cb), viewer);
 	viewer->frame_rate_hscale_changed = g_signal_connect (viewer->frame_rate_hscale, "value-changed",
 							      G_CALLBACK (frame_rate_scale_cb), viewer);
+	g_signal_connect (viewer->frame_rate_hscale, "button-press-event",
+			  G_CALLBACK (frame_rate_scale_button_press_cb), viewer);
+	g_signal_connect (viewer->frame_rate_hscale, "button-release-event",
+			  G_CALLBACK (frame_rate_scale_button_release_cb), viewer);
 	g_signal_connect (viewer->acquisition_popover, "show", G_CALLBACK (acquisition_popover_show_cb), viewer);
 	g_signal_connect (viewer->acquisition_popover, "closed", G_CALLBACK (camera_settings_popover_closed_cb), viewer);
 	g_signal_connect_after (viewer->exposure_hscale, "draw", G_CALLBACK (exposure_scale_draw_cb), viewer);

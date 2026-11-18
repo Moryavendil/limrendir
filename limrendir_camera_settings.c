@@ -240,12 +240,13 @@ static double compute_max_frame_rate (LrdViewer *viewer) {
     return max_frame_rate;
 }
 
-// TRUE while the slider is being used: it must not be moved under the pointer
-static gboolean frame_rate_scale_in_use = FALSE;
+// TRUE while the slider is dragged with the mouse: it must not be moved under the pointer, and the frame rate
+// warning is only given at the end of the drag (see frame_rate_scale_button_release_cb)
+static gboolean frame_rate_scale_dragging = FALSE;
 
 // Puts the frame rate slider at the given frame rate, without applying it
 static void set_frame_rate_scale_value (LrdViewer *viewer, double frame_rate) {
-    if (frame_rate_scale_in_use)
+    if (frame_rate_scale_dragging)
         return;
     double position = arv_viewer_value_to_log (frame_rate, viewer->frame_rate_min, viewer->frame_rate_max);
     g_signal_handler_block (viewer->frame_rate_hscale, viewer->frame_rate_hscale_changed);
@@ -389,6 +390,32 @@ void update_frame_rate_display (LrdViewer *viewer) {
     burst_harmonize_nframes_and_duration (NULL, viewer);
 }
 
+// Warns when a specific rate was asked for and the camera cannot deliver it
+// (requesting the maximum allowed value or the slider maximum is the way to ask for 'as fast as possible', so no
+// warning then: the slider maximum does not take the exposure time into account).
+// The comparison is made with the rate the camera stored, not the requested one: the camera rounds it (e.g. Basler
+// ace 2 keeps 0.1 Hz steps, so 13.7215 Hz becomes 13.7 Hz), which is not a limitation of the settings.
+// 1e-3 relative tolerance: the resulting rate is itself rounded to what the camera timings allow.
+// The same warning is not repeated (e.g. holding an arrow key on the slider, which keeps asking for the same rate).
+static void warn_if_frame_rate_limited (LrdViewer *viewer, double requested_frame_rate, double actual_frame_rate) {
+    static double warned_stored = -1., warned_actual = -1.;
+
+    double max_frame_rate;
+    arv_camera_get_frame_rate_bounds (viewer->camera, NULL, &max_frame_rate, NULL);
+    max_frame_rate = MIN (max_frame_rate, viewer->frame_rate_max);
+    double stored_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
+
+    if (requested_frame_rate >= max_frame_rate * (1. - 1e-3) || actual_frame_rate >= stored_frame_rate * (1. - 1e-3)) {
+        warned_stored = warned_actual = -1.;
+        return;
+    }
+    if (stored_frame_rate == warned_stored && actual_frame_rate == warned_actual)
+        return;
+    warned_stored = stored_frame_rate;
+    warned_actual = actual_frame_rate;
+    log_warning("Camera cannot reach the requested frame rate (%g Hz): it runs at %g Hz.", stored_frame_rate, actual_frame_rate);
+}
+
 // Requests a frame rate from the camera and returns the frame rate actually obtained.
 double impose_frame_rate (LrdViewer *viewer, double new_frame_rate) {
     log_trace("Trying to impose the frame rate set : %g Hz", new_frame_rate);
@@ -405,18 +432,8 @@ double impose_frame_rate (LrdViewer *viewer, double new_frame_rate) {
     double actual_frame_rate = get_actual_frame_rate (viewer);
     log_debug("New frame rate set : %g Hz (requested: %g Hz)", actual_frame_rate, new_frame_rate);
 
-    // Warn when a specific rate was asked for and the camera cannot deliver it
-    // (requesting the maximum allowed value or the slider maximum is the way to ask for 'as fast as possible', so no
-    // warning then: the slider maximum does not take the exposure time into account).
-    // The comparison is made with the rate the camera stored, not the requested one: the camera rounds it (e.g. Basler
-    // ace 2 keeps 0.1 Hz steps, so 13.7215 Hz becomes 13.7 Hz), which is not a limitation of the settings.
-    // 1e-3 relative tolerance: the resulting rate is itself rounded to what the camera timings allow.
-    double max_frame_rate;
-    arv_camera_get_frame_rate_bounds (viewer->camera, NULL, &max_frame_rate, NULL);
-    max_frame_rate = MIN (max_frame_rate, viewer->frame_rate_max);
-    double stored_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
-    if (new_frame_rate < max_frame_rate * (1. - 1e-3) && actual_frame_rate < stored_frame_rate * (1. - 1e-3))
-        log_warning("Camera cannot reach the requested frame rate (%g Hz): it runs at %g Hz.", stored_frame_rate, actual_frame_rate);
+    if (!frame_rate_scale_dragging)
+        warn_if_frame_rate_limited (viewer, new_frame_rate, actual_frame_rate);
 
     return actual_frame_rate;
 }
@@ -455,9 +472,36 @@ void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer)
     double position = gtk_range_get_value (range);
     double frame_rate = arv_viewer_value_from_log (position, viewer->frame_rate_min, viewer->frame_rate_max);
 
-    frame_rate_scale_in_use = TRUE;
+    // Out of a drag (keyboard, mouse wheel), the slider is put back at once at the actual frame rate
     impose_frame_rate (viewer, frame_rate);
-    frame_rate_scale_in_use = FALSE;
+}
+
+gboolean frame_rate_scale_button_press_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer) {
+    if (event->button == GDK_BUTTON_PRIMARY)
+        frame_rate_scale_dragging = TRUE;
+    return FALSE;
+}
+
+// End of the drag: done once GtkRange has handled the release (which can still change the value), so in an idle.
+// The slider is put back at the actual frame rate, which can be lower than where it was released (e.g. limited by
+// the exposure time), and the warning, if any, is given once.
+static gboolean frame_rate_scale_drag_end_cb (gpointer data) {
+    LrdViewer *viewer = data;
+    frame_rate_scale_dragging = FALSE;
+
+    if (ARV_IS_CAMERA (viewer->camera)) {
+        double position = gtk_range_get_value (GTK_RANGE (viewer->frame_rate_hscale));
+        double requested = arv_viewer_value_from_log (position, viewer->frame_rate_min, viewer->frame_rate_max);
+        warn_if_frame_rate_limited (viewer, requested, get_actual_frame_rate (viewer));
+        update_frame_rate_display (viewer);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+gboolean frame_rate_scale_button_release_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer) {
+    if (frame_rate_scale_dragging && event->button == GDK_BUTTON_PRIMARY)
+        g_idle_add (frame_rate_scale_drag_end_cb, viewer);
+    return FALSE;
 }
 
 // Sets the frame rate to the maximum the camera can deliver with its current settings (button and b key).

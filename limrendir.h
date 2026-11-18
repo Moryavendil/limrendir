@@ -441,6 +441,8 @@ void update_frame_rate_display (LrdViewer *viewer);
 void frame_rate_limits_changed (LrdViewer *viewer);
 
 void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer);
+gboolean frame_rate_scale_button_press_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer);
+gboolean frame_rate_scale_button_release_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer);
 
 void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer);
 
