@@ -408,13 +408,15 @@ double impose_frame_rate (LrdViewer *viewer, double new_frame_rate) {
     // Warn when a specific rate was asked for and the camera cannot deliver it
     // (requesting the maximum allowed value or the slider maximum is the way to ask for 'as fast as possible', so no
     // warning then: the slider maximum does not take the exposure time into account).
-    // 1e-3 relative tolerance: the camera rounds the rate to what its timings allow.
+    // The comparison is made with the rate the camera stored, not the requested one: the camera rounds it (e.g. Basler
+    // ace 2 keeps 0.1 Hz steps, so 13.7215 Hz becomes 13.7 Hz), which is not a limitation of the settings.
+    // 1e-3 relative tolerance: the resulting rate is itself rounded to what the camera timings allow.
     double max_frame_rate;
     arv_camera_get_frame_rate_bounds (viewer->camera, NULL, &max_frame_rate, NULL);
     max_frame_rate = MIN (max_frame_rate, viewer->frame_rate_max);
-    if (new_frame_rate < max_frame_rate * (1. - 1e-3) && actual_frame_rate < new_frame_rate * (1. - 1e-3))
-        log_warning("The camera cannot reach %g Hz with the current settings (exposure time, region, "
-                    "pixel format...): it runs at %g Hz.", new_frame_rate, actual_frame_rate);
+    double stored_frame_rate = arv_camera_get_frame_rate (viewer->camera, NULL);
+    if (new_frame_rate < max_frame_rate * (1. - 1e-3) && actual_frame_rate < stored_frame_rate * (1. - 1e-3))
+        log_warning("Camera cannot reach the requested frame rate (%g Hz): it runs at %g Hz.", stored_frame_rate, actual_frame_rate);
 
     return actual_frame_rate;
 }
