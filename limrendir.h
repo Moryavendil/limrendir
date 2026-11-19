@@ -183,13 +183,18 @@ struct  _LrdViewer {
     GtkWidget *black_level_hscale;
     GtkWidget *auto_black_level_toggle;
     // Acquisition control popover
+    GtkWidget *recformat_mp4_radiobutton;
+    GtkWidget *recformat_mkv_radiobutton;
+    GtkWidget *recformat_gcv_radiobutton;
     GtkWidget *recmode_usercontrolled_radiobutton;
     GtkWidget *recmode_burst_radiobutton;
     GtkWidget *burst_nframes_radiobutton;
     GtkWidget *burst_duration_radiobutton;
-    GtkWidget *burst_nframes_spinBox;
-    GtkWidget *burst_duration_spinBox;
-    GtkWidget *acquisition_name_entry;
+    GtkWidget *burst_nframes_entry;
+    GtkWidget *burst_duration_entry;
+    // Values of the single burst: the number of frames recorded, and the duration (s) it gives at the frame rate
+    gint burst_n_frames;
+    double burst_duration;
 
     // Help popover
     GtkWidget *help_button;
@@ -249,8 +254,6 @@ struct  _LrdViewer {
     gulong new_buffer_available_video;
     gulong recording_button_changed;
     gulong burst_control_changed;
-    gulong burst_nframes_changed;
-    gulong burst_duration_changed;
 
     guint gain_update_event;
     guint black_level_update_event;
@@ -283,7 +286,7 @@ struct  _LrdViewer {
     gboolean gevcapture_mode;
     // Show the GenTL entries of the cameras also seen by Aravis' own USB3 Vision interface
     gboolean allow_duplicates;
-    char *dataset_name;
+    char *dataset_name;    // name proposed for the next video saved (command line option), NULL for the default one
 
     // GevCapture settings
     int gc_option_x_offset;
@@ -321,6 +324,10 @@ struct  _LrdViewer {
 
     // download
     RecordingType record_type;
+    // Current recording: the temporary file (folder for gcv) it is written in, and the name proposed when it is
+    // saved, at its end (see save_recording)
+    char *recording_path;
+    char *recording_name;
 
     // Keypress commands
     gulong keypress_handler_id;
@@ -516,15 +523,22 @@ void record_mode_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
 void burst_control_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
-void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer *viewer);
+// Reads the number of frames or the duration (the one that is chosen) typed, and computes the other one
+void burst_harmonize_nframes_and_duration (LrdViewer *viewer);
 
-void change_default_acquisition_name (GtkToggleButton *button, LrdViewer *viewer);
+void burst_entry_activate_cb (GtkEntry *entry, LrdViewer *viewer);
 
-// Acquisition name
+gboolean burst_entry_focus_out_cb (GtkWidget *entry, GdkEventFocus *event, LrdViewer *viewer);
 
+// RECORDING FORMAT
+
+void recording_format_toggled (GtkToggleButton *button, LrdViewer *viewer);
+
+// The format chosen in the recording settings (gcv in single burst mode)
+RecordingType chosen_recording_type (LrdViewer *viewer);
+
+// Default name of a video: the camera model and the date
 char *obtain_new_original_filename(LrdViewer *viewer);
-
-void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
 
 //
 

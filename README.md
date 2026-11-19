@@ -73,6 +73,16 @@ Limrendir then appears in the applications (from there, right click on it to pin
 
 ## How to use
 
+### Recording a video
+
+Choose the format in the recording settings, then press the record button or the space bar. Three formats are available:
+
+* **mp4** (lossy): compressed (H.264), small files read by every video player.
+* **mkv** (lossless): compressed without loss (FFV1) of the image as displayed (8 bits per color), larger files.
+* **gcv** (lossless): the frames exactly as the camera sends them, with the camera timestamp of each frame: the most precise for timing, very large files.
+
+mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
+
 ### Trying limrendir without a camera
 
 Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
@@ -157,24 +167,20 @@ I am not a professional software developer so the code quality might not be perf
 
 * Use option `log-level`to set the debug level (2=info (default), 3=debug, 4=trace)
 * The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
-* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
+* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot, the folder of the last saved video and the recording format.
 * If another vendor's camera software is installed (e.g. Basler pylon, which sets `GENICAM_GENTL64_PATH`), aravis also sees USB3 cameras through that software's GenTL driver, so `arv-tool` lists them twice. Limrendir only lists the entry of aravis' own USB3 Vision driver; launch it with `--allow-duplicates` to also list the other one.
+* During a recording, the video is written in a temporary file named `<name>.recording.<format>`, in the folder of the last saved video: after a crash, the recording can be found there.
 
 
 ## To-Do list
 
-? Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
-
-! Choose the file name (and video type) **before** saving, save directly when space is pushed
-
-? Replace the rotate/tarsnform buttons by a down arrow button that makes a toolbar appears in which there is
 * Display options (non default values for black and white)
 * Metrics (in a separate, side bar: pxl value histogram, Fourier transform)
 
 ? More settings remembered between sessions:
 - the grid spacing (fine = 60 px / medium = 120 px / coarse = 240 px)
 
-? Add zebra patterns
+? Add zebra patterns. Add focus aid.
 
 
 ## Licence

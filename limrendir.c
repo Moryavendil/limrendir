@@ -311,6 +311,16 @@ void notification_dismiss_clicked_cb (GtkButton *dismiss, LrdViewer *viewer)
 }
 
 // QUITTING
+
+// Closing the window during a recording first stops it, so that the video can be saved (see save_recording)
+static gboolean
+main_window_delete_cb (GtkWidget *window, GdkEvent *event, LrdViewer *viewer)
+{
+    if (is_record_button_active (viewer))
+        stop_recording (viewer);
+    return FALSE;
+}
+
 static void
 arv_viewer_quit_cb (GtkApplicationWindow *window, LrdViewer *viewer)
 {
@@ -390,14 +400,19 @@ activate (GApplication *application)
     viewer->camera_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "camera_settings_button"));
     viewer->acquisition_settings_button = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_settings_button"));
 
-    // Record mode
+    // Recording format and mode
+    viewer->recformat_mp4_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recformat_mp4_radiobutton"));
+    viewer->recformat_mkv_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recformat_mkv_radiobutton"));
+    viewer->recformat_gcv_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recformat_gcv_radiobutton"));
     viewer->recmode_usercontrolled_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_usercontrolled_radiobutton"));
     viewer->recmode_burst_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "recmode_burst_radiobutton"));
     viewer->burst_nframes_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_radiobutton"));
     viewer->burst_duration_radiobutton = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_radiobutton"));
-    viewer->burst_nframes_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_spinBox"));
-    viewer->burst_duration_spinBox = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_spinBox"));
-    viewer->acquisition_name_entry = GTK_WIDGET (gtk_builder_get_object (builder, "acquisition_name_entry"));
+    viewer->burst_nframes_entry = GTK_WIDGET (gtk_builder_get_object (builder, "burst_nframes_entry"));
+    viewer->burst_duration_entry = GTK_WIDGET (gtk_builder_get_object (builder, "burst_duration_entry"));
+    // Default values for burst mode
+    viewer->burst_n_frames = 100;
+    viewer->burst_duration = 10;
 
     // Help popover
     viewer->help_button = GTK_WIDGET (gtk_builder_get_object (builder, "help_button"));
@@ -446,6 +461,7 @@ activate (GApplication *application)
 	g_signal_connect (viewer->refresh_button, "clicked", G_CALLBACK (update_device_list_cb), viewer);
 	g_signal_connect (viewer->video_mode_button, "clicked", G_CALLBACK (switch_to_video_mode_cb), viewer);
 	g_signal_connect (viewer->back_button, "clicked", G_CALLBACK (switch_to_camera_list_cb), viewer);
+	g_signal_connect (viewer->main_window, "delete-event", G_CALLBACK (main_window_delete_cb), viewer);
 	g_signal_connect (viewer->main_window, "destroy", G_CALLBACK (arv_viewer_quit_cb), viewer);
 	g_signal_connect (viewer->snapshot_button, "clicked", G_CALLBACK (snapshot_cb), viewer);
 	g_signal_connect (viewer->rotate_cw_button, "clicked", G_CALLBACK (rotate_cw_cb), viewer);
@@ -468,16 +484,18 @@ activate (GApplication *application)
 	g_signal_connect (viewer->frame_rate_entry, "activate", G_CALLBACK (frame_rate_entry_cb), viewer);
 	g_signal_connect (viewer->frame_rate_entry, "focus-out-event", G_CALLBACK (frame_rate_entry_focus_cb), viewer);
 
-    g_signal_connect (viewer->acquisition_settings_button, "toggled", G_CALLBACK (change_default_acquisition_name), viewer);
-    g_signal_connect (viewer->acquisition_name_entry, "changed", G_CALLBACK (acquisition_name_changed_cb), viewer);
-
-    // record mode
+    // recording format and mode
+    g_signal_connect (viewer->recformat_mp4_radiobutton, "toggled", G_CALLBACK (recording_format_toggled), viewer);
+    g_signal_connect (viewer->recformat_mkv_radiobutton, "toggled", G_CALLBACK (recording_format_toggled), viewer);
+    g_signal_connect (viewer->recformat_gcv_radiobutton, "toggled", G_CALLBACK (recording_format_toggled), viewer);
     g_signal_connect (viewer->recmode_usercontrolled_radiobutton, "toggled", G_CALLBACK (record_mode_toggled), viewer);
 
     viewer->burst_control_changed = g_signal_connect (viewer->burst_nframes_radiobutton, "toggled", G_CALLBACK (burst_control_toggled), viewer);
 
-    viewer->burst_nframes_changed = g_signal_connect (viewer->burst_nframes_spinBox, "value-changed", G_CALLBACK (burst_harmonize_nframes_and_duration), viewer);
-    viewer->burst_duration_changed = g_signal_connect (viewer->burst_duration_spinBox, "value-changed", G_CALLBACK (burst_harmonize_nframes_and_duration), viewer);
+    g_signal_connect (viewer->burst_nframes_entry, "activate", G_CALLBACK (burst_entry_activate_cb), viewer);
+    g_signal_connect (viewer->burst_nframes_entry, "focus-out-event", G_CALLBACK (burst_entry_focus_out_cb), viewer);
+    g_signal_connect (viewer->burst_duration_entry, "activate", G_CALLBACK (burst_entry_activate_cb), viewer);
+    g_signal_connect (viewer->burst_duration_entry, "focus-out-event", G_CALLBACK (burst_entry_focus_out_cb), viewer);
 
     // Custom G2L
     viewer->recording_button_changed = g_signal_connect (viewer->record_button, "clicked", G_CALLBACK (record_button_cb), viewer);

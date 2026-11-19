@@ -402,7 +402,7 @@ void update_frame_rate_display (LrdViewer *viewer) {
     update_exposure_period_mark (viewer, frame_rate);
     update_frame_rate_exposure_mark (viewer);
 
-    burst_harmonize_nframes_and_duration (NULL, viewer);
+    burst_harmonize_nframes_and_duration (viewer);
 }
 
 // Warns when a specific rate was asked for and the camera cannot deliver it
