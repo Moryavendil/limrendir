@@ -7,6 +7,14 @@ Limrendir allows to view and save a video stream from a Genicam compatible camer
 It is a mashup between Aravis Viewer, which allows for user-friendly interactions with a camera including control and stream visualisation, and [gevCapture](https://gitlab.com/gevcapture/gevcapture), which allows for user-unfriendly recording of said stream.
 
 
+## Features
+
+* See the livestream of any Genicam camera
+* Record snapshots, or videos in different formats
+* Change the field of view of the camera and the recorded region of interest easily and precisely
+* More to come!
+
+
 ## How to install
 
 ### 1. GStreamer plugins
@@ -24,22 +32,25 @@ On recent distributions (e.g. Debian 13), the packaged Aravis is recent enough:
 
     sudo apt install libaravis-dev aravis-tools
     
-#### Installing from source
+#### Installing Aravis from source
 
-First install its dependencies:
+If you need a recent version of Aravis, start by downloading the latest stable [release](https://github.com/AravisProject/aravis/releases)
 
-    sudo apt install libxml2-dev libglib2.0-dev cmake libusb-1.0-0-dev gobject-introspection \
-                     libgtk-3-dev gtk-doc-tools xsltproc libgstreamer1.0-dev \
-                     libgstreamer-plugins-base1.0-dev \
-                     libgirepository1.0-dev gettext meson ninja-build
+```
+wget https://github.com/AravisProject/aravis/archive/refs/tags/0.8.36.tar.gz -O aravis-0.8.36.tar.gz
+tar -xzf aravis-0.8.36.tar.gz
+cd aravis-0.8.36
+```
 
-Then [build and install the Aravis library](https://aravisproject.github.io/aravis/aravis-stable/building.html), and refresh the list of installed libraries (otherwise limrendir fails to start with "error while loading shared libraries: libaravis..."):
+And then follow the [official instructions](https://aravisproject.github.io/aravis/aravis-stable/building.html). 
+
+Finally, refresh the list of installed libraries (otherwise limrendir fails to start with "error while loading shared libraries: libaravis..."):
 
     sudo ldconfig
 
 ### 3. Limrendir
 
-Install what is needed to compile it (already there if you built Aravis from source):
+Install the dependencies:
 
     sudo apt install cmake libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libusb-1.0-0-dev
 
@@ -54,6 +65,24 @@ Download this project and compile it:
 
 Use option `--help` to know about the available options.
 
+#### Launching limrendir with a click
+
+    ./install-launcher.sh --desktop
+
+Limrendir then appears in the applications (from there, right click on it to pin it to the dock) and on the desktop (without `--desktop`, only in the applications). A terminal opens next to it to show its messages; use `--no-terminal` to remove it. It also creates `~/.local/bin/limrendir`, so that typing `limrendir` in any terminal runs it (if `~/.local/bin` was not in your `PATH`, open a new terminal or log in again). Run the script again after moving the limrendir folder. `./uninstall-launcher.sh` removes the launchers and the command.
+
+## How to use
+
+### Recording a video
+
+Choose the format in the recording settings, then press the record button or the space bar. Three formats are available:
+
+* **mp4** (lossy): compressed (H.264), small files read by every video player.
+* **mkv** (lossless): compressed without loss (FFV1) of the image as displayed (8 bits per color), larger files.
+* **gcv** (lossless): the frames exactly as the camera sends them, with the camera timestamp of each frame: the most precise for timing, very large files.
+
+mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
+
 ### Trying limrendir without a camera
 
 Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
@@ -64,12 +93,25 @@ Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
 
 To see the cameras available to aravis, use `arv-tool`. If it does not show your camera, try running it as an administrator.
 
-For USB camera, if `arv-tool` only finds your camera when ran as administrator, you can create a new udev rule, i.e. an `aravis.rules` file in the `/etc/udev/rules.d` directory (see [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html#permissions)).
+#### USB Cameras
+
+If `arv-tool` only finds your camera when ran as administrator, it is a problem of USB authorizations. You can solve this by creating a new udev rule, i.e. an `aravis.rules` file in the `/etc/udev/rules.d` directory (see [here](https://aravisproject.github.io/aravis/aravis-stable/usb.html#permissions)).
 
 One-liner for Debian/Ubuntu:
 
     echo 'SUBSYSTEM=="usb", ATTRS{bDeviceClass}=="ef", ATTRS{bDeviceSubClass}=="02", ATTRS{bDeviceProtocol}=="01", ENV{ID_USB_INTERFACES}=="*:ef0500:*", MODE="0666"' | sudo tee /etc/udev/rules.d/aravis.rules
 
+#### Ethernet cameras
+
+* Check that the camera is powered, whether directly or using Power-over-Ethernet injector (normal PC Ethernet ports provides no power to the camera).
+* heck that the connection is suitable. In GNOME network manager, 
+	- In the Identity tab, set MTU to 9000.
+	- In the IPv4 tab, choose Link-Local Only.
+	- In the IPv6 tab, choose Disable, then click Apply.
+
+Then disconnect and reconnect the cable.
+
+The result of `ip link` corresponding to the ethernet port (you can check which it is using `nmcli device`) should show `state UP`. If it says `NO-CARRIER`, the cable is the issue.
 
 ### Missing frames
 
@@ -116,29 +158,29 @@ Limrendir is written in C and based on Aravis (0.8/0.10), gstreamer (1.0) and GT
 A consequent part of the code is directly burrowed or adapted from Aravis Viewer. My additions consist mainly of 
 
  * Smoother control of the acquisition and field of view parameters with key bindings routines inspired by gevCapture and
- * Recording capabilities, with different formats supported (at term).
+ * Recording capabilities, with different formats supported.
 
 I am not a professional software developer so the code quality might not be perfect. But hey, it works !
 
 
-## To-Do list
-
-? Add a confirmation notification / mini dialog box when attempting to saved in an existing .gcv folder
-
-? Better grid (finer)
-
-? More settings remembered between sessions:
-- the mp4 encoding options
-- the grid spacing (fine = 30 px / medium = 60 px / coarse = 120 px / medium (in px)
-
-? Add zebra patterns
-
-
 ## Technical information
 
+* Use option `log-level`to set the debug level (2=info (default), 3=debug, 4=trace)
 * The logs of each session are saved in `~/.local/state/limrendir/logs/` (the path is shown at startup).
-* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot and of the last saved video.
+* Some choices are remembered between sessions in `~/.local/state/limrendir/settings`: the folder and format of the last saved snapshot, the folder of the last saved video and the recording format.
 * If another vendor's camera software is installed (e.g. Basler pylon, which sets `GENICAM_GENTL64_PATH`), aravis also sees USB3 cameras through that software's GenTL driver, so `arv-tool` lists them twice. Limrendir only lists the entry of aravis' own USB3 Vision driver; launch it with `--allow-duplicates` to also list the other one.
+* During a recording, the video is written in a temporary file named `<name>.recording.<format>`, in the folder of the last saved video: after a crash, the recording can be found there.
+
+
+## To-Do list
+
+* Display options (non default values for black and white)
+* Metrics (in a separate, side bar: pxl value histogram, Fourier transform)
+
+? More settings remembered between sessions:
+- the grid spacing (fine = 60 px / medium = 120 px / coarse = 240 px)
+
+? Add zebra patterns. Add focus aid.
 
 
 ## Licence

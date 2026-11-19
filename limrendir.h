@@ -26,7 +26,7 @@
 
 G_BEGIN_DECLS
 
-#define LIMRENDIR_VERSION "0.8.2"
+#define LIMRENDIR_VERSION "0.9.0"
 
 typedef struct	_LrdViewer	LrdViewer;
 
@@ -124,6 +124,7 @@ struct  _LrdViewer {
     guint rotation;
     gboolean flip_vertical;
     gboolean flip_horizontal;
+    gboolean invert;    // display the inverted image (the recordings and snapshots are not affected)
 
     double exposure_min, exposure_max;
 
@@ -148,8 +149,18 @@ struct  _LrdViewer {
     GtkWidget *back_button;
     GtkWidget *snapshot_button;
     GtkWidget *rotate_cw_button;
+    GtkWidget *transform_toggle;
+    GtkWidget *transform_bar;
+    GtkWidget *roi_toggle;
+    gulong roi_toggle_clicked;
+    gboolean video_controls_locked;    // during a recording or an exposure search
+    GtkWidget *crop_button;
+    GtkWidget *whole_view_button;
+    GtkWidget *zoom_in_button;
+    GtkWidget *zoom_out_button;
     GtkWidget *flip_vertical_toggle;
     GtkWidget *flip_horizontal_toggle;
+    GtkWidget *invert_toggle;
     GtkWidget *camera_settings_button;
     GtkWidget *acquisition_settings_button;
     // VIDEO
@@ -172,13 +183,18 @@ struct  _LrdViewer {
     GtkWidget *black_level_hscale;
     GtkWidget *auto_black_level_toggle;
     // Acquisition control popover
+    GtkWidget *recformat_mp4_radiobutton;
+    GtkWidget *recformat_mkv_radiobutton;
+    GtkWidget *recformat_gcv_radiobutton;
     GtkWidget *recmode_usercontrolled_radiobutton;
     GtkWidget *recmode_burst_radiobutton;
     GtkWidget *burst_nframes_radiobutton;
     GtkWidget *burst_duration_radiobutton;
-    GtkWidget *burst_nframes_spinBox;
-    GtkWidget *burst_duration_spinBox;
-    GtkWidget *acquisition_name_entry;
+    GtkWidget *burst_nframes_entry;
+    GtkWidget *burst_duration_entry;
+    // Values of the single burst: the number of frames recorded, and the duration (s) it gives at the frame rate
+    gint burst_n_frames;
+    double burst_duration;
 
     // Help popover
     GtkWidget *help_button;
@@ -194,6 +210,18 @@ struct  _LrdViewer {
     // Custom G2L
     GtkWidget *record_button;
     GtkWidget *max_frame_rate_button;
+    GtkWidget *best_exposure_button;
+    GtkWidget *frame_rate_hscale;
+    GtkWidget *acquisition_popover;    // the camera settings popover
+    // Range of the frame rate slider. The maximum is what the camera can deliver with its current settings, whatever
+    // the exposure time (see compute_max_frame_rate): it is recomputed only when it may have changed and the
+    // popover is shown.
+    double frame_rate_min, frame_rate_max;
+    gboolean frame_rate_max_outdated;
+    guint frame_rate_max_update_event;
+    double exposure_period_mark;    // position of the frame period tick on the exposure slider (< 0: none)
+    double frame_rate_exposure_mark;    // position of the 1 / exposure tick on the frame rate slider (< 0: none)
+    double frame_rate_before_fov_change;    // actual frame rate when the video was left (< 0: none), see select_mode
 
     // Notification
     GtkWidget *notification_revealer;
@@ -206,6 +234,7 @@ struct  _LrdViewer {
     gulong camera_selected;
     gulong exposure_spin_changed;
     gulong exposure_hscale_changed;
+    gulong frame_rate_hscale_changed;
     gulong auto_exposure_clicked;
     gulong gain_spin_changed;
     gulong gain_hscale_changed;
@@ -225,8 +254,6 @@ struct  _LrdViewer {
     gulong new_buffer_available_video;
     gulong recording_button_changed;
     gulong burst_control_changed;
-    gulong burst_nframes_changed;
-    gulong burst_duration_changed;
 
     guint gain_update_event;
     guint black_level_update_event;
@@ -259,7 +286,7 @@ struct  _LrdViewer {
     gboolean gevcapture_mode;
     // Show the GenTL entries of the cameras also seen by Aravis' own USB3 Vision interface
     gboolean allow_duplicates;
-    char *dataset_name;
+    char *dataset_name;    // name proposed for the next video saved (command line option), NULL for the default one
 
     // GevCapture settings
     int gc_option_x_offset;
@@ -297,6 +324,10 @@ struct  _LrdViewer {
 
     // download
     RecordingType record_type;
+    // Current recording: the temporary file (folder for gcv) it is written in, and the name proposed when it is
+    // saved, at its end (see save_recording)
+    char *recording_path;
+    char *recording_name;
 
     // Keypress commands
     gulong keypress_handler_id;
@@ -329,6 +360,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode);
 // VIDEO MODE
 // Enables or disables the controls of the video mode (settings, snapshot, back, rotation, flips)
 void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive);
+void camera_settings_popover_closed_cb (GtkPopover *popover, LrdViewer *viewer);
 
 void switch_to_video_mode_cb (GtkToolButton *button, LrdViewer *viewer);
 
@@ -338,12 +370,23 @@ void update_transform (LrdViewer *viewer);
 gint get_videoflip_method (LrdViewer *viewer);
 
 void rotate_cw_cb (GtkButton *button, LrdViewer *viewer);
+void grid_button_cb (GtkButton *button, LrdViewer *viewer);
+void roi_button_cb (GtkButton *button, LrdViewer *viewer);
+void crop_button_cb (GtkButton *button, LrdViewer *viewer);
+void whole_view_button_cb (GtkButton *button, LrdViewer *viewer);
+void zoom_in_button_cb (GtkButton *button, LrdViewer *viewer);
+void zoom_out_button_cb (GtkButton *button, LrdViewer *viewer);
+void update_fov_buttons (LrdViewer *viewer);
 
 void flip_horizontal_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer);
 
 void reset_image_transform (LrdViewer *viewer);
+
+// Inversion of the displayed image (o)
+void invert_cb (GtkToggleButton *toggle, LrdViewer *viewer);
+void toggle_invert (LrdViewer *viewer);
 
 // Snapshot saving
 gboolean _save_gst_sample_to_file (GstSample *sample, const char *path, const char *mime_type, GError **error);
@@ -401,6 +444,22 @@ double get_actual_frame_rate (LrdViewer *viewer);
 
 void update_frame_rate_display (LrdViewer *viewer);
 
+// To be called when a setting that can change the maximum frame rate (region, binning, pixel format...)
+// was modified: updates the frame rate display and, when needed, the range of the frame rate slider.
+void frame_rate_limits_changed (LrdViewer *viewer);
+
+// Warns when the actual frame rate is not the one before the video was left (see select_mode), e.g. after a crop
+void warn_if_fov_changed_frame_rate (LrdViewer *viewer);
+
+void frame_rate_scale_cb (GtkRange *range, LrdViewer *viewer);
+gboolean frame_rate_scale_button_press_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer);
+gboolean frame_rate_scale_button_release_cb (GtkWidget *widget, GdkEventButton *event, LrdViewer *viewer);
+
+void acquisition_popover_show_cb (GtkWidget *popover, LrdViewer *viewer);
+
+gboolean exposure_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer);
+gboolean frame_rate_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer);
+
 double impose_frame_rate (LrdViewer *viewer, double new_frame_rate);
 
 void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus);
@@ -409,7 +468,9 @@ void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer);
 
 gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdViewer *viewer);
 
-void apply_max_frame_rate_if_wanted (GtkButton *button, LrdViewer *viewer);
+// Sets the frame rate (once) to the maximum the camera can deliver with its current settings
+void set_max_frame_rate (LrdViewer *viewer);
+void max_frame_rate_button_cb (GtkButton *button, LrdViewer *viewer);
 
 
 // Mathematics routines for the sliders
@@ -462,15 +523,22 @@ void record_mode_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
 void burst_control_toggled (GtkToggleButton *button, LrdViewer *viewer);
 
-void burst_harmonize_nframes_and_duration (GtkSpinButton *spin_button, LrdViewer *viewer);
+// Reads the number of frames or the duration (the one that is chosen) typed, and computes the other one
+void burst_harmonize_nframes_and_duration (LrdViewer *viewer);
 
-void change_default_acquisition_name (GtkToggleButton *button, LrdViewer *viewer);
+void burst_entry_activate_cb (GtkEntry *entry, LrdViewer *viewer);
 
-// Acquisition name
+gboolean burst_entry_focus_out_cb (GtkWidget *entry, GdkEventFocus *event, LrdViewer *viewer);
 
+// RECORDING FORMAT
+
+void recording_format_toggled (GtkToggleButton *button, LrdViewer *viewer);
+
+// The format chosen in the recording settings (gcv in single burst mode)
+RecordingType chosen_recording_type (LrdViewer *viewer);
+
+// Default name of a video: the camera model and the date
 char *obtain_new_original_filename(LrdViewer *viewer);
-
-void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
 
 //
 
@@ -486,6 +554,9 @@ void acquisition_name_changed_cb (GtkEditable *entry, LrdViewer *viewer);
         gboolean best_exposure_search_next_step(void *data);
 
         void best_exposure_search_nonblocking (LrdViewer *viewer);
+
+// Optimize exposure button (same as the n key)
+        void best_exposure_button_cb (GtkButton *button, LrdViewer *viewer);
 
 // KEYBOARD ROUTINES
 // Help popover

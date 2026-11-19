@@ -5,51 +5,57 @@
 #include <logroutines.h>
 
 // HELP (h)
+// The descriptions are the same in the printed help, the help popover and the button tooltips (with [key] appended).
 void help(LrdViewer *viewer) {
         printf("%s***** Available key bindings *****%s\n", tcCYN, tcNRM);
 
-        printf("%s*** Quality Of Life ***%s                                                     \n", tcMAG, tcNRM);
-        printf("h .................. Show help                                                  \n");
-        printf("q  ................. Quit                                                       \n");
-        printf("F11 ................ Toggle fullscreen                                          \n");
-        printf("m .................. Toggle window maximization                                 \n");
-        printf("g .................. Toggle grid                                                \n");
+        printf("%s*** General Commands ***%s\n", tcMAG, tcNRM);
+        printf("h .................. Show the key bindings\n");
+        printf("q .................. Quit\n");
+        printf("F11 ................ Toggle fullscreen\n");
+        printf("m .................. Toggle window maximization\n");
+        printf("g .................. Cycle grid overlay\n");
+        printf("o .................. Toggle image inversion\n");
     if (!is_record_button_active(viewer)) {
-        printf("%s*** Camera Control ***%s                                                      \n", tcMAG, tcNRM);
-        printf("+/- ................ Change exposure time (1 us)                                \n");
-        printf("Pg Up/Pg Down ...... Change exposure time (100 us)                              \n");
-        printf("b .................. Toggle use the maximum available frame rate                \n");
-        printf("n .................. Set the exposure to have a maximum contrast (experimental) \n");
+        printf("%s*** Camera Control ***%s\n", tcMAG, tcNRM);
+        printf("+/- ................ Change exposure time (1 us)\n");
+        printf("Pg Up/Pg Down ...... Change exposure time (100 us)\n");
+        printf("b .................. Set maximum frame rate\n");
+        printf("n .................. Optimize exposure\n");
 
-        printf("%s*** Field Of View Manipulation ***%s                                          \n", tcMAG, tcNRM);
-        printf("a .................. See the largest possible field of view                     \n");
-        printf("z .................. Zoom in (x2) to the center of the field of view            \n");
-        printf("Z .................. Zoom out (x2) from the center of the field of view         \n");
-        printf("r .................. Toggle Region Of Interest mode                             \n");
-        printf("e,s,d,f (E,S,D,F)... Move upper left corner of ROI                              \n");
-        printf("i,j,k,l (I,J,K,L)... Move lower right corner of ROI                             \n");
-        printf("arrows (keypad) .... Move ROI as a whole                                        \n");
-        printf("mouse drag ......... Draw a new ROI (in ROI mode)                               \n");
-        printf("c .................. Crop to the Region Of Interest                             \n");
+        printf("%s*** Field Of View Manipulation ***%s\n", tcMAG, tcNRM);
+        printf("a .................. See the largest possible field of view\n");
+        printf("z .................. Zoom in (x2)\n");
+        printf("Z .................. Zoom out (x2)\n");
+        printf("r .................. Toggle region of interest (ROI) mode\n");
+        printf("Ctrl+a ............. Fit the ROI to the field of view\n");
+        printf("e,s,d,f (E,S,D,F)... Move the upper left corner of the ROI\n");
+        printf("i,j,k,l (I,J,K,L)... Move the lower right corner of the ROI\n");
+        printf("arrows (keypad) .... Move the whole ROI\n");
+        printf("mouse drag ......... Draw a new ROI (in ROI mode)\n");
+        printf("c .................. Crop to the ROI\n");
     }
-        printf("%s*** Video Acquisition ***%s                                                   \n", tcMAG, tcNRM);
-        printf("SPACE .............. Toggle video acquisition                                   \n");
+        printf("%s*** Video Acquisition ***%s\n", tcMAG, tcNRM);
+        printf("SPACE .............. Start / stop recording\n");
 }
 
+
 void setup_help_popover (LrdViewer *viewer) {
-    // QOL
+    // GENERAL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_1), "<b>General Commands</b>\n"
                                                           "h\n"
                                                           "q\n"
                                                           "F11\n"
                                                           "m\n"
-                                                          "g");
+                                                          "g\n"
+                                                          "o");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_1), "\n"
-                                                                  "Print help\n"
+                                                                  "Show the key bindings\n"
                                                                   "Quit\n"
                                                                   "Toggle fullscreen\n"
                                                                   "Toggle window maximization\n"
-                                                                  "Toggle grid");
+                                                                  "Cycle grid overlay\n"
+                                                                  "Toggle image inversion");
     // CAMERA CONTROL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_2), "<b>Camera Control</b>\n"
                                                           "+/-\n"
@@ -59,34 +65,36 @@ void setup_help_popover (LrdViewer *viewer) {
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_2), "\n"
                                                                   "Change exposure time (1 us)\n"
                                                                   "Change exposure time (100 us)\n"
-                                                                  "Toggle maximum frame rate \n"
-                                                                  "Optimize exposure (experimental)");
-    // ROI
+                                                                  "Set maximum frame rate\n"
+                                                                  "Optimize exposure");
+    // FIELD OF VIEW
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_3), "<b>Field Of View Manipulation</b>\n"
                                                           "a\n"
                                                           "z\n"
                                                           "Z\n"
-                                                         "r\n"
-                                                         "e,s,d,f \t\t(E,S,D,F)\n"
-                                                         "i,j,k,l \t\t(I,J,K,L)\n"
-                                                         "↑←↓→ \t(keypad)\n"
-                                                         "mouse drag\n"
-                                                         "c");
+                                                          "r\n"
+                                                          "Ctrl+a\n"
+                                                          "e,s,d,f \t\t(E,S,D,F)\n"
+                                                          "i,j,k,l \t\t(I,J,K,L)\n"
+                                                          "↑←↓→ \t(keypad)\n"
+                                                          "mouse drag\n"
+                                                          "c");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_3), "\n"
                                                                   "See the largest possible field of view\n"
                                                                   "Zoom in (x2)\n"
                                                                   "Zoom out (x2)\n"
-                                                                 "Toggle Region Of Interest mode\n"
-                                                                 "Move upper left corner of ROI\n"
-                                                                 "Move lower right corner of ROI\n"
-                                                                 "Move ROI as a whole\n"
-                                                                 "Draw a new ROI (in ROI mode)\n"
-                                                                 "Crop to the Region Of Interest");
-    // VIDEO ACQU
+                                                                  "Toggle region of interest (ROI) mode\n"
+                                                                  "Fit the ROI to the field of view\n"
+                                                                  "Move the upper left corner of the ROI\n"
+                                                                  "Move the lower right corner of the ROI\n"
+                                                                  "Move the whole ROI\n"
+                                                                  "Draw a new ROI (in ROI mode)\n"
+                                                                  "Crop to the ROI");
+    // VIDEO ACQUISITION
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_4), "<b>Video Acquisition</b>\n"
-                                                         "SPACE");
+                                                          "SPACE");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_4), "\n"
-                                                                 "Toggle video acquisition");
+                                                                  "Start / stop recording");
 }
 
 // ROI MANIPULATION
@@ -151,6 +159,22 @@ void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height) {
 void toggle_roi(LrdViewer *viewer) {
     if (is_roi_possible(viewer))
         viewer->show_roi = !(viewer->show_roi);
+    constrain_roi(viewer);
+    update_status_bar_cb(viewer);
+    overlay_queue_redraw(viewer);
+}
+
+// FIT THE ROI TO THE FIELD OF VIEW (Ctrl+a), like "select all"
+void roi_select_all(LrdViewer *viewer) {
+    if (!is_roi_possible(viewer))
+        return;
+    gint width, height;
+    arv_camera_get_region (viewer->camera, NULL, NULL, &width, &height, NULL);
+    viewer->roi_x = 0;
+    viewer->roi_y = 0;
+    viewer->roi_w = width;
+    viewer->roi_h = height;
+    viewer->show_roi = TRUE;
     constrain_roi(viewer);
     update_status_bar_cb(viewer);
     overlay_queue_redraw(viewer);
@@ -266,8 +290,6 @@ void crop_to_roi(LrdViewer *viewer) {
     log_trace("=== CROP BackToVideoMode");
     select_mode (viewer, TRN_VIEWER_MODE_VIDEO);
 
-    apply_max_frame_rate_if_wanted (NULL, viewer);
-
     log_trace("====== CROP End");
 }
 
@@ -298,6 +320,36 @@ static void get_max_region_size (LrdViewer *viewer, gint *max_w, gint *max_h) {
         arv_camera_get_height_bounds (viewer->camera, NULL, max_h, NULL);
         log_warning("Unknown sensor size: the largest field of view may not be reached (%d x %d).", *max_w, *max_h);
     }
+}
+
+// Makes the ROI button show whether the ROI mode is on (without acting on it), and enables the field of view buttons
+// only when they would do something: crop needs a ROI smaller than the field of view, global view and zoom out need a
+// field of view smaller than the largest one.
+void update_fov_buttons (LrdViewer *viewer) {
+    if (viewer->roi_toggle == NULL)
+        return;
+
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->roi_toggle)) != viewer->show_roi) {
+        g_signal_handler_block (viewer->roi_toggle, viewer->roi_toggle_clicked);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->roi_toggle), viewer->show_roi);
+        g_signal_handler_unblock (viewer->roi_toggle, viewer->roi_toggle_clicked);
+    }
+
+    gboolean can_crop = FALSE, can_unzoom = FALSE;
+    if (!viewer->video_controls_locked && ARV_IS_CAMERA (viewer->camera)) {
+        gint x, y, w, h, min_x, min_y, max_w, max_h;
+        arv_camera_get_region (viewer->camera, &x, &y, &w, &h, NULL);
+        arv_camera_get_x_offset_bounds (viewer->camera, &min_x, NULL, NULL);
+        arv_camera_get_y_offset_bounds (viewer->camera, &min_y, NULL, NULL);
+        get_max_region_size (viewer, &max_w, &max_h);
+
+        can_crop = viewer->show_roi &&
+                   (viewer->roi_x != 0 || viewer->roi_y != 0 || viewer->roi_w != w || viewer->roi_h != h);
+        can_unzoom = x != min_x || y != min_y || w != max_w || h != max_h;
+    }
+    gtk_widget_set_sensitive (viewer->crop_button, can_crop);
+    gtk_widget_set_sensitive (viewer->whole_view_button, can_unzoom);
+    gtk_widget_set_sensitive (viewer->zoom_out_button, can_unzoom);
 }
 
 void see_whole_field_of_view(LrdViewer *viewer) {
@@ -523,6 +575,37 @@ void toggle_grid(LrdViewer *viewer) {
     overlay_queue_redraw(viewer);
 }
 
+void grid_button_cb (GtkButton *button, LrdViewer *viewer) {
+    toggle_grid(viewer);
+}
+
+// FIELD OF VIEW BUTTONS (same as the r, c, a, z and Z keys)
+void roi_button_cb (GtkButton *button, LrdViewer *viewer) {
+    toggle_roi(viewer);
+    update_fov_buttons(viewer);    // toggle_roi does nothing when no ROI is possible
+}
+
+void crop_button_cb (GtkButton *button, LrdViewer *viewer) {
+    crop_to_roi(viewer);
+    update_fov_buttons(viewer);
+}
+
+void whole_view_button_cb (GtkButton *button, LrdViewer *viewer) {
+    see_whole_field_of_view(viewer);
+    update_fov_buttons(viewer);
+}
+
+void zoom_in_button_cb (GtkButton *button, LrdViewer *viewer) {
+    zoomin(viewer);
+    update_fov_buttons(viewer);
+}
+
+void zoom_out_button_cb (GtkButton *button, LrdViewer *viewer) {
+    zoomout(viewer);
+    update_fov_buttons(viewer);
+}
+
+
 // CHANGE EXPOSURE (+/-/Pg Up/Pg Down)
 void change_exposure(LrdViewer *viewer, GtkSpinType direction) {
     gtk_spin_button_spin (GTK_SPIN_BUTTON (viewer->exposure_spin_button), direction, 1);
@@ -574,6 +657,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
         case GDK_KEY_g:
             toggle_grid(viewer);
             break;
+        case GDK_KEY_o:
+            toggle_invert(viewer);
+            break;
         case GDK_KEY_F11:
             toggle_fullscreen(viewer);
             break;
@@ -603,12 +689,14 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 best_exposure_search_nonblocking(viewer);
                 break;
             case GDK_KEY_b:
-                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button), !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->max_frame_rate_button)));
-//                apply_max_frame_rate_if_wanted(NULL, viewer); // redondant
+                set_max_frame_rate(viewer);
                 break;
 
             case GDK_KEY_a:
-                see_whole_field_of_view(viewer);
+                if (event->state & GDK_CONTROL_MASK)
+                    roi_select_all(viewer);
+                else
+                    see_whole_field_of_view(viewer);
                 break;
             case GDK_KEY_c:
                 crop_to_roi(viewer);
@@ -723,6 +811,8 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
         }
     }
+
+    update_fov_buttons(viewer);
 
     // Let the key also reach the focused widget (e.g. to type in an entry)
     return FALSE;

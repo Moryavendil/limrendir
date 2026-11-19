@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <arv.h>
@@ -183,22 +184,16 @@ static void write_recorded_region (FILE *file, ArvBuffer *buffer) {
     }
 }
 
-// Creates the .gcv folder and its files. Returns FALSE (with everything closed) if this is not possible.
+// Creates the .gcv folder of the recording (viewer->recording_path) and its files. Returns FALSE (with everything
+// closed) if this is not possible.
 gboolean open_files(LrdViewer *viewer) {
-
-    char *extension = ".gcv";
-    size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
-    char *dirname = (char *) g_malloc(filename_s);
-    snprintf(dirname, filename_s, "%s%s", viewer->dataset_name, extension);
-
+    const char *dirname = viewer->recording_path;
     log_trace("dirpath: %s", dirname);
 
-    // An already existing folder is fine (e.g. chosen in the dialog), anything else is an error
-    if (mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO) != 0 && errno != EEXIST) {
+    if (mkdir(dirname, S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
         int const saved_errno = errno;
         log_error("Could not create the recording folder '%s': %s", dirname, g_strerror(saved_errno));
         arv_viewer_show_notification(viewer, "Could not create the recording folder", g_strerror(saved_errno));
-        g_free(dirname);
         return FALSE;
     }
 
@@ -207,7 +202,6 @@ gboolean open_files(LrdViewer *viewer) {
         stampFile = open_dataset_file(viewer, dirname, "stamps.stamps");
     if (stampFile != NULL)
         metaFile = open_dataset_file(viewer, dirname, "metainfo.meta");
-    g_free(dirname);
 
     if (imageFile == NULL || stampFile == NULL || metaFile == NULL) {
         close_files();
@@ -259,72 +253,7 @@ void write_meta(LrdViewer *viewer) {
     fprintf(metaFile, "subRegionHeight=%d\n", height);
 }
 
-// FILENAME CONFIRMATION
-char *remove_ext (char* myStr, char extSep, char pathSep) {
-    char *retStr, *lastExt, *lastPath;
-
-    // Error checks and allocate string.
-
-    if (myStr == NULL) return NULL;
-    if ((retStr = malloc (strlen (myStr) + 1)) == NULL) return NULL;
-
-    // Make a copy and find the relevant characters.
-
-    strcpy (retStr, myStr);
-    lastExt = strrchr (retStr, extSep);
-    lastPath = (pathSep == 0) ? NULL : strrchr (retStr, pathSep);
-
-    // If it has an extension separator.
-
-    if (lastExt != NULL) {
-        // and it's to the right of the path separator.
-
-        if (lastPath != NULL) {
-            if (lastPath < lastExt) {
-                // then remove it.
-
-                *lastExt = '\0';
-            }
-        } else {
-            // Has extension separator with no path separator.
-
-            *lastExt = '\0';
-        }
-    }
-
-    // Return the modified string.
-
-    return retStr;
-}
-
-gboolean does_file_exist(char *filename) {
-    if (filename == NULL) { return FALSE; }
-
-    FILE *test_file = fopen(filename, "r");
-    if (test_file)
-    {
-        fclose(test_file);
-        return TRUE;
-    }
-    return FALSE;
-}
-
-gboolean does_dir_exist(char *dirname) {
-    if (dirname == NULL) { return FALSE; }
-
-    DIR* dir = opendir(dirname);
-    if (dir) {
-        closedir(dir);
-        return TRUE;
-    } else if (ENOENT == errno) {
-        /* Directory does not exist. */
-        return FALSE;
-    } else {
-        /* opendir() failed for some other reason. */
-        return TRUE;
-    }
-}
-
+// RECORDING FILES
 
 char *obtain_new_original_filename(LrdViewer *viewer) {
     char *filename;
@@ -340,273 +269,250 @@ char *obtain_new_original_filename(LrdViewer *viewer) {
     return filename;
 }
 
-char* have_video_filename(LrdViewer *viewer, RecordingType recording_type) {
-    if (viewer->dataset_name == NULL) { return NULL; }
+// A recording is written in a temporary file (a folder for gcv) from the moment it starts. Once it is finished, the
+// user chooses where to save it (save_recording) and the temporary file is moved there, or deleted if the user does
+// not want to keep it. The temporary file is in the folder where videos are saved by default, with the default name
+// followed by ".recording": a recording interrupted by a crash can be found there.
 
-    char *extension = "";
+static const char *recording_extension (RecordingType recording_type) {
     switch (recording_type) {
-        case RECORDTYPE_AVI:
-            extension = ".avi";
-            break;
-        case RECORDTYPE_FLV:
-            extension = ".flv";
-            break;
-        case RECORDTYPE_MKV:
-            extension = ".mkv";
-            break;
-        case RECORDTYPE_MP4:
-            extension = ".mp4";
-            break;
-        default:
-            return NULL;
-            break;
+        case RECORDTYPE_GEVCAPTURE: return ".gcv";
+        case RECORDTYPE_AVI: return ".avi";
+        case RECORDTYPE_FLV: return ".flv";
+        case RECORDTYPE_MKV: return ".mkv";
+        case RECORDTYPE_MP4: return ".mp4";
+        default: return "";
     }
-
-    size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
-    char *filename = (char *) g_malloc(filename_s);
-    snprintf(filename, filename_s, "%s%s", viewer->dataset_name, extension);
-
-    return filename;
 }
 
-// Name of a video type in the settings ("gcv", "mp4" or "mkv"), NULL for the types that cannot be chosen
-static const char *video_type_setting_name(RecordingType recording_type) {
+// The files of a .gcv folder
+static const char *const gcv_file_names[] = {"rawvideo.raw", "stamps.stamps", "metainfo.meta"};
+
+// The folder where videos are saved by default: the one of the last saved video, else Limrendir-videos in the user's
+// videos folder (created if needed)
+static char *default_videos_folder (void) {
+    char *folder = settings_get_directory (SETTINGS_GROUP_VIDEO);
+    if (folder == NULL) {
+        const char *videos = g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS);
+        folder = g_build_filename (videos != NULL ? videos : ".", "Limrendir-videos", NULL);
+        g_mkdir_with_parents (folder, 0755);
+    }
+    return folder;
+}
+
+// A free path for the temporary file of a new recording named 'name', in the default videos folder if possible
+// (saving the video there or on the same disk is then immediate), else in the user's cache folder
+static char *new_temporary_recording_path (const char *name, RecordingType recording_type) {
+    g_autofree char *folder = default_videos_folder ();
+    if (g_access (folder, W_OK) != 0) {
+        log_warning("Cannot write in the folder '%s': the recording is written in the cache folder until it is saved.",
+                    folder);
+        g_free (folder);
+        folder = g_build_filename (g_get_user_cache_dir (), "limrendir", NULL);
+        g_mkdir_with_parents (folder, 0700);
+    }
+    g_autofree char *base_name = g_path_get_basename (name);
+    const char *extension = recording_extension (recording_type);
+    for (int i = 1; ; i++) {
+        g_autofree char *file_name = i == 1 ? g_strdup_printf ("%s.recording%s", base_name, extension)
+                                            : g_strdup_printf ("%s-%d.recording%s", base_name, i, extension);
+        char *path = g_build_filename (folder, file_name, NULL);
+        if (!g_file_test (path, G_FILE_TEST_EXISTS))
+            return path;
+        g_free (path);
+    }
+}
+
+// Deletes a recording: a video file, or a .gcv folder with its files
+static void delete_recording (const char *path, RecordingType recording_type) {
+    if (recording_type == RECORDTYPE_GEVCAPTURE) {
+        for (size_t i = 0; i < G_N_ELEMENTS (gcv_file_names); i++) {
+            g_autofree char *file = g_build_filename (path, gcv_file_names[i], NULL);
+            g_remove (file);
+        }
+        if (g_rmdir (path) == 0 || errno == ENOENT)
+            return;
+    } else if (g_remove (path) == 0 || errno == ENOENT) {
+        return;
+    }
+    log_warning("Could not delete the recording '%s': %s", path, g_strerror (errno));
+}
+
+// Deletes the temporary file of the current recording, which failed to start
+static void discard_recording (LrdViewer *viewer) {
+    if (viewer->recording_path != NULL) {
+        log_debug("Deleting the recording file '%s'", viewer->recording_path);
+        delete_recording (viewer->recording_path, viewer->record_type);
+    }
+    g_clear_pointer (&viewer->recording_path, g_free);
+    g_clear_pointer (&viewer->recording_name, g_free);
+}
+
+// Moves a recording (a video file, or a .gcv folder) to 'to', replacing the file there if 'replace'.
+// On another disk, the files are copied: this can take a while.
+static gboolean move_recording (const char *from, const char *to, RecordingType recording_type, gboolean replace,
+                                GError **error) {
+    g_autoptr (GFile) source = g_file_new_for_path (from);
+    g_autoptr (GFile) destination = g_file_new_for_path (to);
+    GError *move_error = NULL;
+    log_debug("Moving the recording '%s' to '%s'", from, to);
+    if (g_file_move (source, destination, replace ? G_FILE_COPY_OVERWRITE : G_FILE_COPY_NONE, NULL, NULL, NULL,
+                     &move_error))
+        return TRUE;
+    if (recording_type != RECORDTYPE_GEVCAPTURE || !g_error_matches (move_error, G_IO_ERROR, G_IO_ERROR_WOULD_RECURSE)) {
+        g_propagate_error (error, move_error);
+        return FALSE;
+    }
+    g_clear_error (&move_error);
+
+    // A folder cannot be moved to another disk at once: its files are copied, then deleted once all are copied
+    log_debug("The recording is on another disk: copying its files.");
+    if (g_mkdir (to, 0755) != 0) {
+        int const saved_errno = errno;
+        g_set_error (error, G_IO_ERROR, g_io_error_from_errno (saved_errno), "Could not create the folder '%s': %s",
+                     to, g_strerror (saved_errno));
+        return FALSE;
+    }
+    for (size_t i = 0; i < G_N_ELEMENTS (gcv_file_names); i++) {
+        g_autoptr (GFile) file_from = g_file_get_child (source, gcv_file_names[i]);
+        g_autoptr (GFile) file_to = g_file_get_child (destination, gcv_file_names[i]);
+        if (!g_file_copy (file_from, file_to, G_FILE_COPY_NONE, NULL, NULL, NULL, error)) {
+            delete_recording (to, RECORDTYPE_GEVCAPTURE);
+            return FALSE;
+        }
+    }
+    delete_recording (from, RECORDTYPE_GEVCAPTURE);
+    return TRUE;
+}
+
+// Asks a question with a button for "no" and one for "yes" (destructive: red if 'destructive'). Returns TRUE for yes.
+static gboolean ask_question (GtkWindow *parent, const char *question, const char *details,
+                              const char *no_label, const char *yes_label, gboolean destructive) {
+    GtkWidget *message = gtk_message_dialog_new (parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s", question);
+    if (details != NULL)
+        gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (message), "%s", details);
+    gtk_dialog_add_buttons (GTK_DIALOG (message), no_label, GTK_RESPONSE_CANCEL, yes_label, GTK_RESPONSE_ACCEPT, NULL);
+    gtk_dialog_set_default_response (GTK_DIALOG (message), GTK_RESPONSE_CANCEL);
+    if (destructive) {
+        GtkWidget *yes_button = gtk_dialog_get_widget_for_response (GTK_DIALOG (message), GTK_RESPONSE_ACCEPT);
+        gtk_style_context_add_class (gtk_widget_get_style_context (yes_button), GTK_STYLE_CLASS_DESTRUCTIVE_ACTION);
+    }
+    gint const response = gtk_dialog_run (GTK_DIALOG (message));
+    gtk_widget_destroy (message);
+    return response == GTK_RESPONSE_ACCEPT;
+}
+
+static void show_error (GtkWindow *parent, const char *error, const char *details) {
+    GtkWidget *message = gtk_message_dialog_new (parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", error);
+    if (details != NULL)
+        gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (message), "%s", details);
+    gtk_dialog_run (GTK_DIALOG (message));
+    gtk_widget_destroy (message);
+}
+
+// Whether 'filename' ends with 'extension' (whatever its case)
+static gboolean has_extension (const char *filename, const char *extension) {
+    size_t const length = strlen (filename), extension_length = strlen (extension);
+    return length > extension_length && g_ascii_strcasecmp (filename + length - extension_length, extension) == 0;
+}
+
+// Asks the user where to save the recording that just ended (written in 'path'), and moves it there. 'name' is the
+// name proposed, with or without a folder. If the user does not want to save it, the recording is deleted, after a
+// confirmation.
+static void save_recording (LrdViewer *viewer, const char *path, RecordingType recording_type, const char *name) {
+    const char *extension = recording_extension (recording_type);
+
+    GtkWidget *dialog = gtk_file_chooser_dialog_new ("Save Video", GTK_WINDOW (viewer->main_window),
+                                                     GTK_FILE_CHOOSER_ACTION_SAVE,
+                                                     "_Cancel", GTK_RESPONSE_CANCEL,
+                                                     "_Save", GTK_RESPONSE_ACCEPT,
+                                                     NULL);
+    GtkFileChooser *chooser = GTK_FILE_CHOOSER (dialog);
+    gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_ACCEPT);
+    gtk_file_chooser_set_do_overwrite_confirmation (chooser, TRUE);
+
+    // A name with a folder (command line option) opens the dialog in that folder, if it exists
+    g_autofree char *folder = NULL;
+    if (strchr (name, '/') != NULL) {
+        g_autofree char *name_folder = g_path_get_dirname (name);
+        folder = g_canonicalize_filename (name_folder, NULL);
+        if (!g_file_test (folder, G_FILE_TEST_IS_DIR))
+            g_clear_pointer (&folder, g_free);
+    }
+    if (folder == NULL)
+        folder = default_videos_folder ();
+    g_autofree char *base_name = g_path_get_basename (name);
+    g_autofree char *proposed_name = has_extension (base_name, extension) ? g_strdup (base_name)
+                                                                          : g_strconcat (base_name, extension, NULL);
+    gtk_file_chooser_set_current_folder (chooser, folder);
+    gtk_file_chooser_set_current_name (chooser, proposed_name);
+
+    GtkFileFilter *filter = gtk_file_filter_new ();
+    g_autofree char *pattern = g_strconcat ("*", extension, NULL);
     switch (recording_type) {
-        case RECORDTYPE_GEVCAPTURE: return "gcv";
-        case RECORDTYPE_MP4: return "mp4";
-        case RECORDTYPE_MKV: return "mkv";
-        default: return NULL;
+        case RECORDTYPE_GEVCAPTURE: gtk_file_filter_set_name (filter, "GevCapture video (*.gcv)"); break;
+        case RECORDTYPE_MKV: gtk_file_filter_set_name (filter, "MKV video (lossless FFV1) (*.mkv)"); break;
+        case RECORDTYPE_MP4: gtk_file_filter_set_name (filter, "MP4 video (H.264) (*.mp4)"); break;
+        default: gtk_file_filter_set_name (filter, pattern); break;
     }
-}
+    gtk_file_filter_add_pattern (filter, pattern);
+    gtk_file_chooser_add_filter (chooser, filter);
 
-// The video type remembered in the settings, or RECORDTYPE_NONE
-static RecordingType remembered_video_type(void) {
-    g_autofree char *type_name = settings_get_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT);
-    if (type_name == NULL)
-        return RECORDTYPE_NONE;
-    const RecordingType candidates[] = {RECORDTYPE_GEVCAPTURE, RECORDTYPE_MP4, RECORDTYPE_MKV};
-    for (size_t i = 0; i < G_N_ELEMENTS(candidates); i++) {
-        if (g_strcmp0(type_name, video_type_setting_name(candidates[i])) == 0)
-            return candidates[i];
-    }
-    log_debug("Unknown remembered video type '%s': ignored.", type_name);
-    return RECORDTYPE_NONE;
-}
-
-RecordingType confirm_dataset_name(LrdViewer *viewer)  {
-    char *filename;
-    if (viewer->dataset_name == NULL) {
-        log_debug("No name specified, we need to set one.");
-        filename = obtain_new_original_filename(viewer);
-    } else {
-        filename = g_strdup(viewer->dataset_name);
-
-        // This part is useless but la flemme de l'enlever
-        char *extension = ".gcv";
-        size_t const filename_s = strlen(viewer->dataset_name) + strlen(extension) + 1;
-        char *dirname = (char *) g_malloc(filename_s);
-        snprintf(dirname, filename_s, "%s%s", viewer->dataset_name, extension);
-
-        if (does_file_exist(dirname) || does_dir_exist(dirname)) {
-            log_debug("Name %s is taken, generating another one.", viewer->dataset_name);
-            g_free(filename);
-            filename = obtain_new_original_filename(viewer);
-        } else {
-            log_debug("Name %s seems to be free (nothing named %s).", viewer->dataset_name, dirname);
-        }
-        g_free(dirname);
-    }
-
-    log_debug("Asking for a name choice, default is %s.", filename);
-
-    GtkFileFilter *filter_gcv;
-    GtkFileFilter *filter_mkv;
-    GtkFileFilter *filter_mp4;
-    GtkFileFilter *filter_all;
-    GtkWidget *dialog;
-    char *path;
-
-    dialog = gtk_file_chooser_dialog_new("Save Video", GTK_WINDOW (viewer->main_window),
-//                                         GTK_FILE_CHOOSER_ACTION_SAVE,
-                                         GTK_FILE_CHOOSER_ACTION_CREATE_FOLDER,
-                                         "_Cancel",
-                                         GTK_RESPONSE_CANCEL,
-                                         "_Save",
-                                         GTK_RESPONSE_ACCEPT,
-                                         NULL);
-
-    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER (dialog), TRUE);
-
-    log_debug("The special video dir is %s", g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS));
-
-    // Default folder: the one where the last video was saved, else Limrendir-videos in the user's videos folder
-    char* lrd_videos_path = settings_get_directory(SETTINGS_GROUP_VIDEO);
-    if (lrd_videos_path == NULL) {
-        if (g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS) != NULL) {
-            lrd_videos_path = g_build_filename(g_get_user_special_dir (G_USER_DIRECTORY_VIDEOS), "Limrendir-videos", NULL);
-        } else {
-            lrd_videos_path = g_build_filename(".", "Limrendir-videos", NULL);
-        }
-        // Si le dossier existe deja, le mkdir echoue et osef.
-        mkdir(lrd_videos_path, S_IRWXU | S_IRWXG | S_IRWXO);
-    }
-
-    log_debug("The saving dir is %s", lrd_videos_path);
-
-    path = g_build_filename(lrd_videos_path, filename, NULL);
-    g_free(lrd_videos_path);
-
-    gtk_file_chooser_set_filename(GTK_FILE_CHOOSER (dialog), path);
-    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER (dialog), filename);
-
-    gboolean const burst_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton));
-
-    const gchar *any_filter_name = "Supported video formats";
-    filter_all = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter_all, any_filter_name);
-
-    const gchar *raw_filter_name = "GevCapture style video (*.gcv)";
-    filter_gcv = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter_gcv, raw_filter_name);
-//    gtk_file_filter_add_pattern(filter_gcv, "*.gcv");
-//    gtk_file_filter_add_pattern(filter_all, "*.gcv");
-    gtk_file_filter_add_pattern(filter_gcv, "*");
-    gtk_file_filter_add_pattern(filter_all, "*");
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_gcv);
-
-    const gchar *flv_filter_name = "FLV video (H264 encoding) (*.flv)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, flv_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.flv");
-//    gtk_file_filter_add_pattern(filter_all, "*.flv");
-//    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (viewer->recmode_burst_radiobutton))) {
-//        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
-//    }
-
-    const gchar *avi_filter_name = "AVI video (*.avi)";
-//    filter = gtk_file_filter_new();
-//    gtk_file_filter_set_name(filter, avi_filter_name);
-//    gtk_file_filter_add_pattern(filter, "*.avi");
-//    gtk_file_filter_add_pattern(filter_all, "*.avi");
-//    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter);
-
-    const gchar *mkv_filter_name = "MKV video (lossless FFV1) (*.mkv)";
-    filter_mkv = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter_mkv, mkv_filter_name);
-    gtk_file_filter_add_pattern(filter_mkv, "*.mkv");
-    gtk_file_filter_add_pattern(filter_all, "*.mkv");
-    if (!burst_mode) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mkv);
-    }
-
-    const gchar *mp4_filter_name = "MP4 video (H.264) (*.mp4)";
-    filter_mp4 = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter_mp4, mp4_filter_name);
-    gtk_file_filter_add_pattern(filter_mp4, "*.mp4");
-    gtk_file_filter_add_pattern(filter_all, "*.mp4");
-    if (!burst_mode) {
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_mp4);
-    }
-
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER (dialog), filter_all);
-
-    // The default filter: the type of the last saved video if it can be used in this recording mode,
-    // else MP4 (GCV in burst mode, the only type available there)
-    RecordingType default_type = remembered_video_type();
-    if (default_type == RECORDTYPE_NONE || (burst_mode && default_type != RECORDTYPE_GEVCAPTURE))
-        default_type = burst_mode ? RECORDTYPE_GEVCAPTURE : RECORDTYPE_MP4;
-    log_debug("Default video type: %s", video_type_setting_name(default_type));
-    switch (default_type) {
-        case RECORDTYPE_MP4: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mp4); break;
-        case RECORDTYPE_MKV: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_mkv); break;
-        default: gtk_file_chooser_set_filter(GTK_FILE_CHOOSER (dialog), filter_gcv); break;
-    }
-    // The MKV / MP4 filters that were not added to the dialog are not owned by it
-    if (burst_mode) {
-        g_object_ref_sink(filter_mkv);
-        g_object_unref(filter_mkv);
-        g_object_ref_sink(filter_mp4);
-        g_object_unref(filter_mp4);
-    }
-
-    g_free(path);
-    g_free(filename);
-
-    gint result = gtk_dialog_run(GTK_DIALOG (dialog));
-    if (result == GTK_RESPONSE_ACCEPT) {
-        log_debug("Dialog accepted.");
-
-        filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER (dialog));
-        g_free(viewer->dataset_name);
-        viewer->dataset_name = remove_ext(filename, '.', '/');
-
-
-        const gchar *extension = strrchr(filename, '.');
-
-        log_trace("\tFile name: %s", filename);
-        log_trace("\tdataset name: %s", viewer->dataset_name);
-        log_trace("\tExtension: %s", extension);
-
-        // GTK3 file chooser does not allow for automatic modification of the extension when a different filter is selected
-        // I don't know why and I think it is a shame. cf https://gitlab.gnome.org/GNOME/gtk/-/issues/4626
-        // anyway, we have to do black-dirty magic here to make sure we get the extension right
-        //
-        // At the beginning, we set a filename with *no* estension.
-        // If the file selected has an extension, then the user put it themselves.
-        // Thus we trust that it is the extension they want.
-        // If there is no extension (extension==NULL), we see if a filter have been set.
-        RecordingType chosen_filetype = RECORDTYPE_NONE;
-        if (extension == NULL) {
-            const gchar *current_filter_name = gtk_file_filter_get_name (gtk_file_chooser_get_filter (GTK_FILE_CHOOSER (dialog)));
-            log_trace("No extension. Current filter: %s", current_filter_name);
-            if (strcmp(current_filter_name, raw_filter_name) == 0) {
-                chosen_filetype = RECORDTYPE_GEVCAPTURE;
-            } else if (strcmp(current_filter_name, avi_filter_name) == 0) {
-                chosen_filetype = RECORDTYPE_AVI;
-            } else if (strcmp(current_filter_name, flv_filter_name) == 0) {
-                chosen_filetype = RECORDTYPE_FLV;
-            } else if (strcmp(current_filter_name, mkv_filter_name) == 0) {
-                chosen_filetype = RECORDTYPE_MKV;
-            } else if (strcmp(current_filter_name, mp4_filter_name) == 0) {
-                chosen_filetype = RECORDTYPE_MP4;
-            } else {
-                log_info("Video type wanted not understood. Aborting recording.");
-                chosen_filetype = RECORDTYPE_NONE;
+    while (TRUE) {
+        if (gtk_dialog_run (GTK_DIALOG (dialog)) != GTK_RESPONSE_ACCEPT) {
+            if (ask_question (GTK_WINDOW (dialog), "Delete the video that was just recorded?",
+                              "It has not been saved.", "_Back", "_Delete", TRUE)) {
+                delete_recording (path, recording_type);
+                log_info("The video was not saved: deleted.");
+                break;
             }
-            // Remove the empty folder created with action GTK_FILE_CHOOSER_ACTION_CREATE_FOLDER
-            rmdir(filename);
-        } else if (strcmp(extension, ".gcv") == 0) {
-            chosen_filetype = RECORDTYPE_GEVCAPTURE;
-        } else if (strcmp(extension, ".avi") == 0) {
-            chosen_filetype = RECORDTYPE_AVI;
-        } else if (strcmp(extension, ".flv") == 0) {
-            chosen_filetype = RECORDTYPE_FLV;
-        } else if (strcmp(extension, ".mkv") == 0) {
-            chosen_filetype = RECORDTYPE_MKV;
-        } else if (strcmp(extension, ".mp4") == 0) {
-            chosen_filetype = RECORDTYPE_MP4;
-        } else {
-            log_info("Unsupported video extension chosen : '%s'. Aborting recording.", extension);
-            chosen_filetype = RECORDTYPE_NONE;
+            continue;
         }
-        if (chosen_filetype != RECORDTYPE_NONE) {
-            settings_set_directory_of(SETTINGS_GROUP_VIDEO, filename);
-            if (video_type_setting_name(chosen_filetype) != NULL)
-                settings_set_string(SETTINGS_GROUP_VIDEO, SETTINGS_KEY_FORMAT, video_type_setting_name(chosen_filetype));
-        }
-        gtk_widget_destroy(dialog);
-        g_free(filename); // 'extension' pointed into it
-        return chosen_filetype;
 
-    } else if (result == GTK_RESPONSE_CANCEL) {
-        log_debug("Dialog cancelled.");
-        gtk_widget_destroy(dialog);
-        return RECORDTYPE_NONE;
-    } else {
-        log_debug("Dialog response is not accept nor cancel. Treating it as a cancel.");
-        gtk_widget_destroy(dialog);
-        return RECORDTYPE_NONE;
+        g_autofree char *filename = gtk_file_chooser_get_filename (chooser);
+        if (filename == NULL)
+            continue;
+        // The extension of the format is added if missing: the dialog did not check this name
+        gboolean const extension_added = !has_extension (filename, extension);
+        if (extension_added) {
+            char *filename_with_extension = g_strconcat (filename, extension, NULL);
+            g_free (filename);
+            filename = filename_with_extension;
+        }
+        g_autofree char *basename = g_path_get_basename (filename);
+
+        gboolean const exists = g_file_test (filename, G_FILE_TEST_EXISTS);
+        if (exists && (recording_type == RECORDTYPE_GEVCAPTURE || g_file_test (filename, G_FILE_TEST_IS_DIR))) {
+            // Never replace a folder
+            g_autofree char *error = g_strdup_printf ("\"%s\" already exists.", basename);
+            show_error (GTK_WINDOW (dialog), error, "Choose another name.");
+            gtk_file_chooser_set_current_name (chooser, basename);
+            continue;
+        }
+        if (exists && extension_added) {
+            g_autofree char *question = g_strdup_printf ("A file named \"%s\" already exists. Do you want to replace it?",
+                                                         basename);
+            if (!ask_question (GTK_WINDOW (dialog), question, "Replacing it will overwrite its contents.",
+                               "_Cancel", "_Replace", TRUE)) {
+                gtk_file_chooser_set_current_name (chooser, basename);
+                continue;
+            }
+        }
+
+        g_autoptr (GError) error = NULL;
+        if (!move_recording (path, filename, recording_type, exists, &error)) {
+            log_warning("Could not save the video as '%s': %s", filename, error->message);
+            show_error (GTK_WINDOW (dialog), "Could not save the video", error->message);
+            continue;
+        }
+        settings_set_directory_of (SETTINGS_GROUP_VIDEO, filename);
+        log_info("Video saved: '%s'", filename);
+        break;
     }
+
+    gtk_widget_destroy (dialog);
 }
 
 // Arv buffer fail check (when recording, it is interesting to know the precise fail reason if a buffer is lost)
@@ -935,11 +841,10 @@ static void set_video_file_tags (LrdViewer *viewer, GstElement *muxer, gboolean 
                              GST_TAG_COMMENT, comment,
                              NULL);
     if (!final) {
-        const char *title = strrchr (viewer->dataset_name, '/');
+        // No title: the name of the video is only chosen at the end of the recording, once the file is finalized
         GstDateTime *now = gst_date_time_new_now_local_time ();
         g_autofree char *application = g_strdup_printf ("Limrendir %s", LIMRENDIR_VERSION);
         gst_tag_setter_add_tags (setter, GST_TAG_MERGE_REPLACE,
-                                 GST_TAG_TITLE, title != NULL ? title + 1 : viewer->dataset_name,
                                  GST_TAG_APPLICATION_NAME, application,
                                  GST_TAG_DEVICE_MANUFACTURER, arv_camera_get_vendor_name (viewer->camera, NULL),
                                  GST_TAG_DEVICE_MODEL, arv_camera_get_model_name (viewer->camera, NULL),
@@ -1012,11 +917,7 @@ static gboolean link_tee_to_recording_branch (LrdViewer *viewer, GstPad *tee_src
 // jhfdejhgfuyswfiuse
 static gboolean setup_video_display_for_gstreamer_recording(LrdViewer *viewer) {
 
-    g_autofree char *filename = have_video_filename(viewer, viewer->record_type);
-    if (filename == NULL) {
-        log_info("Could not get filename");
-        return FALSE;
-    }
+    const char *filename = viewer->recording_path;
 
     log_debug("Preparing to video display (gstreamer-style) recording.");
     gboolean link_success; // boolean to know if a link creation went ok
@@ -1289,6 +1190,7 @@ static gboolean bourrin_recording(void *data)
     // Files writing
     if (!open_files(viewer)) {
         // Puts the interface back in its normal state
+        discard_recording (viewer);
         stop_recording (viewer);
         gtk_widget_set_sensitive(viewer->help_button, TRUE);
         gtk_widget_set_sensitive(viewer->record_button, TRUE);
@@ -1302,6 +1204,8 @@ static gboolean bourrin_recording(void *data)
     viewer->stream = create_camera_stream (viewer, stream_record_cb);
     if (viewer->stream == NULL) {
         // Closes the files and puts the interface back in its normal state
+        close_files ();
+        discard_recording (viewer);
         stop_recording (viewer);
         gtk_widget_set_sensitive(viewer->help_button, TRUE);
         gtk_widget_set_sensitive(viewer->record_button, TRUE);
@@ -1318,7 +1222,9 @@ static gboolean bourrin_recording(void *data)
 
     arv_camera_start_acquisition (viewer->camera, NULL);
 
-    gint number_of_frames_to_record = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(viewer->burst_nframes_spinBox));
+    // (a value typed and not validated yet is taken into account)
+    burst_harmonize_nframes_and_duration (viewer);
+    gint number_of_frames_to_record = viewer->burst_n_frames;
 
     ArvBuffer *buffer;
 
@@ -1388,7 +1294,7 @@ void abort_recording(LrdViewer *viewer) {
     g_signal_handler_block (viewer->record_button, viewer->recording_button_changed);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->record_button), FALSE);
     g_signal_handler_unblock (viewer->record_button, viewer->recording_button_changed);
-    g_clear_pointer(&viewer->dataset_name, g_free);
+    discard_recording (viewer);
     viewer->record_type = RECORDTYPE_NONE;
 }
 
@@ -1400,8 +1306,14 @@ gboolean start_recording (LrdViewer *viewer) {
         g_signal_handler_unblock (viewer->record_button, viewer->recording_button_changed);
     }
 
-    // Check that we can record
-    viewer->record_type = confirm_dataset_name(viewer);
+    // The recording starts right away, in a temporary file: the user chooses where to save it at its end.
+    // The name proposed then is the one given on the command line (for the first video), else the default one.
+    viewer->record_type = chosen_recording_type (viewer);
+    g_free (viewer->recording_name);
+    viewer->recording_name = viewer->dataset_name != NULL ? g_steal_pointer (&viewer->dataset_name)
+                                                          : obtain_new_original_filename (viewer);
+    g_free (viewer->recording_path);
+    viewer->recording_path = new_temporary_recording_path (viewer->recording_name, viewer->record_type);
 
     // Each buffer holds a full frame as sent by the camera (the payload), whatever the ROI or the pixel format
     size_t buffer_size = arv_camera_get_payload (viewer->camera, NULL);
@@ -1438,10 +1350,6 @@ gboolean start_recording (LrdViewer *viewer) {
 
         gboolean successful_launch = TRUE;
         switch (viewer->record_type) {
-            case RECORDTYPE_NONE:
-                abort_recording(viewer);
-                return FALSE;
-                break;
             case RECORDTYPE_GEVCAPTURE:
                 stop_video(viewer);
                 successful_launch *= setup_video_display_for_gevcapture_style_recording(viewer);
@@ -1469,14 +1377,11 @@ gboolean start_recording (LrdViewer *viewer) {
         if (!successful_launch) {
             log_debug("Tried to launch a recording but that was unsuccessful.");
 
-            abort_recording(viewer);
             start_video(viewer); // We need to restart the video because if we are here we stopped it
+            abort_recording(viewer);
             return FALSE;
         }
-        char *dataset_core_name = strrchr(viewer->dataset_name, '/');
-        if (dataset_core_name == NULL)
-            dataset_core_name = viewer->dataset_name;
-        log_info("Beginning to record a video named '%s'", dataset_core_name);
+        log_info("Recording (in the temporary file '%s')", viewer->recording_path);
 
         set_video_controls_sensitive(viewer, FALSE);
         gtk_widget_set_sensitive(viewer->help_key_2, FALSE);
@@ -1489,17 +1394,10 @@ gboolean start_recording (LrdViewer *viewer) {
         // burst mode
 
         switch (viewer->record_type) {
-            case RECORDTYPE_NONE:
-                abort_recording(viewer);
-                return FALSE;
-                break;
             case RECORDTYPE_GEVCAPTURE:
                 stop_video(viewer);
 
-                char *dataset_core_name = strrchr(viewer->dataset_name, '/');
-                if (dataset_core_name == NULL)
-                    dataset_core_name = viewer->dataset_name;
-                log_info("Beginning to record a video named '%s'", dataset_core_name);
+                log_info("Recording a burst (in the temporary file '%s')", viewer->recording_path);
 
                 set_video_controls_sensitive(viewer, FALSE);
                 gtk_widget_set_sensitive(viewer->record_button, FALSE);
@@ -1600,8 +1498,13 @@ void stop_recording (LrdViewer *viewer) {
     // This will call stop_video, we have every reason to hope it will clean up all the remaining mess
     start_video (viewer);
 
-    g_clear_pointer(&viewer->dataset_name, g_free);
+    // The video is complete: the user chooses where to save it, while the live video is back
+    g_autofree char *recording_path = g_steal_pointer (&viewer->recording_path);
+    g_autofree char *recording_name = g_steal_pointer (&viewer->recording_name);
+    RecordingType const recording_type = viewer->record_type;
     viewer->record_type = RECORDTYPE_NONE;
+    if (recording_path != NULL)
+        save_recording (viewer, recording_path, recording_type, recording_name);
 }
 
 
@@ -1613,9 +1516,13 @@ gboolean is_record_button_active(LrdViewer *viewer) {
 
 void record_button_update_tooltip (GtkToggleButton *toggle, LrdViewer *viewer)
 {
+    gboolean const recording = gtk_toggle_button_get_active (toggle);
+
     gtk_widget_set_tooltip_text (GTK_WIDGET (toggle),
-                                 gtk_toggle_button_get_active (toggle) ?
-                                 "Stop recording [SPACE]" : "Start recording [SPACE]");
+                                 recording ? "Stop recording [SPACE]" : "Start recording [SPACE]");
+    gtk_image_set_from_icon_name (GTK_IMAGE (gtk_bin_get_child (GTK_BIN (toggle))),
+                                  recording ? "media-playback-stop-symbolic" : "media-record-symbolic",
+                                  GTK_ICON_SIZE_BUTTON);
 }
 
 void record_button_cb (GtkToggleButton *toggle, LrdViewer *viewer)

@@ -68,6 +68,9 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
             gtk_header_bar_set_title (GTK_HEADER_BAR (viewer->main_headerbar), "Limrendir");
             gtk_header_bar_set_subtitle (GTK_HEADER_BAR (viewer->main_headerbar), NULL);
 
+            // The field of view (region, binning, pixel format) can only be changed out of the video: remember the
+            // frame rate, to warn if it is not the same when the video comes back (see warn_if_fov_changed_frame_rate)
+            viewer->frame_rate_before_fov_change = ARV_IS_STREAM (viewer->stream) ? get_actual_frame_rate (viewer) : -1.;
 
             stop_video (viewer);
             break;
@@ -85,6 +88,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
             g_free (subtitle);
 
             start_video (viewer);
+            warn_if_fov_changed_frame_rate (viewer);
 
             start_key_listener(viewer);
             break;
@@ -94,9 +98,7 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
     }
 
     gtk_widget_set_visible (viewer->back_button, video_visibility);
-    gtk_widget_set_visible (viewer->rotate_cw_button, video_visibility);
-    gtk_widget_set_visible (viewer->flip_vertical_toggle, video_visibility);
-    gtk_widget_set_visible (viewer->flip_horizontal_toggle, video_visibility);
+    gtk_widget_set_visible (viewer->transform_toggle, video_visibility);
     gtk_widget_set_visible (viewer->snapshot_button, video_visibility);
     gtk_widget_set_visible (viewer->camera_settings_button, video_visibility);
     gtk_widget_set_visible (viewer->acquisition_settings_button, video_visibility);
@@ -105,18 +107,37 @@ void select_mode (LrdViewer *viewer, TrnViewerMode mode)
     // Custom G2L
     gtk_widget_set_visible (viewer->record_button, video_visibility);
 
+    if (video_visibility)
+        update_fov_buttons (viewer);
+
 }
 
 // Enables or disables the video mode controls that must not be used during a recording or an exposure search
+// A menu button made insensitive hides its popover (GTK does it): while the camera settings popover is open (an exposure
+// search can be started from it), its button is left sensitive so that it stays open, and the popover content is greyed
+// out instead by the caller. The button is greyed out when the popover closes (camera_settings_popover_closed_cb).
 void set_video_controls_sensitive (LrdViewer *viewer, gboolean sensitive)
 {
-    gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
+    if (sensitive || !gtk_widget_get_visible (viewer->acquisition_popover))
+        gtk_widget_set_sensitive (viewer->camera_settings_button, sensitive);
     gtk_widget_set_sensitive (viewer->acquisition_settings_button, sensitive);
     gtk_widget_set_sensitive (viewer->snapshot_button, sensitive);
     gtk_widget_set_sensitive (viewer->back_button, sensitive);
     gtk_widget_set_sensitive (viewer->rotate_cw_button, sensitive);
     gtk_widget_set_sensitive (viewer->flip_vertical_toggle, sensitive);
     gtk_widget_set_sensitive (viewer->flip_horizontal_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->roi_toggle, sensitive);
+    gtk_widget_set_sensitive (viewer->zoom_in_button, sensitive);
+    viewer->video_controls_locked = !sensitive;
+    update_fov_buttons (viewer);    // crop, global view and zoom out
+}
+
+// Greys out the camera settings button when its popover is closed while the controls are locked
+// (see set_video_controls_sensitive)
+void camera_settings_popover_closed_cb (GtkPopover *popover, LrdViewer *viewer)
+{
+    if (viewer->video_controls_locked)
+        gtk_widget_set_sensitive (viewer->camera_settings_button, FALSE);
 }
 
 // VIDEO MODE
@@ -168,6 +189,19 @@ void flip_vertical_cb (GtkToggleButton *toggle, LrdViewer *viewer)
     viewer->flip_vertical = gtk_toggle_button_get_active (toggle);
 
     update_transform (viewer);
+}
+
+// The inversion is done on the frames reaching the display sink (see add_display_sink), so it is kept when a new
+// pipeline is created and it can be used during a recording.
+void invert_cb (GtkToggleButton *toggle, LrdViewer *viewer)
+{
+    viewer->invert = gtk_toggle_button_get_active (toggle);
+    log_debug ("Image inversion %s.", viewer->invert ? "on" : "off");
+}
+
+void toggle_invert (LrdViewer *viewer)
+{
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->invert_toggle), !viewer->invert);
 }
 
 // Back to no rotation and no flip, with the flip buttons released (from aravis c4a70719e).
@@ -601,6 +635,9 @@ void camera_selection_changed_cb (GtkTreeSelection *selection, LrdViewer *viewer
 
 gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 {
+    // Another camera: its frame rate is not to be compared with the previous one (see warn_if_fov_changed_frame_rate)
+    viewer->frame_rate_before_fov_change = -1.;
+
     GtkTreeIter iter;
     GtkListStore *list_store;
     gint64 *pixel_formats;
