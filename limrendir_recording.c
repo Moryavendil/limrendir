@@ -9,6 +9,7 @@
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
 #include <limrendir_settings.h>
+#include "limrendir_analysis.h"
 
 
 //// These are straight-up copy-pasted form gevCapture
@@ -689,7 +690,11 @@ static void record_buffer (ArvStream *stream, LrdViewer *viewer)
         // (if the display holds too many buffers, the frame is not shown and the next one will be)
         if (show_this_frame && can_display_buffer (viewer, stream)) {
             remember_displayed_frame (viewer, buffer);
-            gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(buffer, stream, viewer));
+            GstBuffer *gst_buffer = arv_to_gst_buffer (buffer, stream, viewer);
+            // Zebra / peaking: a boolean check when off, a non-blocking hand-off otherwise
+            if (g_atomic_int_get (&viewer->analysis_active))
+                analysis_offer_frame (viewer, gst_buffer, TRUE);
+            gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), gst_buffer);
             show_this_frame = FALSE;
         } else {
             arv_stream_push_buffer(stream, buffer);
@@ -882,6 +887,9 @@ static void forward_buffer_to_gst (ArvStream *stream, LrdViewer *viewer)
             GST_BUFFER_PTS (gst_buffer) = gst_util_uint64_scale (running_number - 1, GST_SECOND, mp4_playback_fps);
             GST_BUFFER_DURATION (gst_buffer) = gst_util_uint64_scale (1, GST_SECOND, mp4_playback_fps);
         }
+        // Zebra / peaking: a boolean check when off, a non-blocking hand-off otherwise
+        if (g_atomic_int_get (&viewer->analysis_active))
+            analysis_offer_frame (viewer, gst_buffer, TRUE);
         gst_app_src_push_buffer (GST_APP_SRC (viewer->appsrc), gst_buffer);
     }
 }

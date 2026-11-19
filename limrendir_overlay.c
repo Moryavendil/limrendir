@@ -3,11 +3,13 @@
 #include <arv.h>
 #include <limrendir.h>
 #include <logroutines.h>
+#include "limrendir_analysis.h"
 
 // OVERLAY
 //
-// The grid and the Region Of Interest are drawn on top of the video widget (after gtksink has drawn the frame),
-// never in the images themselves: snapshots and recordings stay untouched, whatever the pixel format.
+// The zebra stripes, the focus peaking, the grid and the Region Of Interest are drawn on top of the video widget
+// (after gtksink has drawn the frame), never in the images themselves: snapshots and recordings stay untouched,
+// whatever the pixel format.
 // Everything is computed in image coordinates (pixels of the camera region, before rotation / flip), and mapped
 // to the widget by the same rotation / flip as the videoflip element and the same letterboxing as gtksink.
 
@@ -21,6 +23,11 @@
 #define OVERLAY_LABEL_MARGIN 8.0        // distance between the ROI label and the corner of the image
 #define OVERLAY_LABEL_PADDING 5.0
 #define OVERLAY_LABEL_RADIUS 4.0
+#define OVERLAY_ZEBRA_COLOR 1.0, 0.0, 0.0     // red (r, g, b)
+#define OVERLAY_ZEBRA_PERIOD 12.0             // distance between two stripes (screen pixels), half of it red
+#define OVERLAY_ZEBRA_SPEED 10.0              // screen pixels per second
+#define OVERLAY_ZEBRA_ANIMATION_RATE 25       // redraws per second moving the stripes (even if the camera is slower)
+#define OVERLAY_PEAKING_COLOR 1.0, 1.0, 0.0   // yellow (r, g, b)
 
 // Matrix mapping image coordinates to the rotated / flipped image, for each videoflip method
 static void videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix)
@@ -153,13 +160,69 @@ static void overlay_draw_roi_label (LrdViewer *viewer, GtkWidget *widget, cairo_
     g_object_unref (layout);
 }
 
+// Paints 'source' (already set) through an A8 mask in image coordinates, one mask pixel per cell x cell image pixels
+static void overlay_paint_mask (cairo_t *cr, const cairo_matrix_t *matrix, const LrdAnalysisMasks *masks,
+                                guint8 *mask_data)
+{
+    // A surface made for this drawing only, over the data of the worker (never cached by cairo after it)
+    cairo_surface_t *surface = cairo_image_surface_create_for_data (mask_data, CAIRO_FORMAT_A8,
+                                                                    masks->width, masks->height, masks->stride);
+    cairo_pattern_t *pattern = cairo_pattern_create_for_surface (surface);
+    // Crisp mask pixels (the default filter would blur them when the image is zoomed in)
+    cairo_pattern_set_filter (pattern, CAIRO_FILTER_NEAREST);
+
+    cairo_save (cr);
+    cairo_transform (cr, matrix);
+    // (the last mask pixels may cover more than the image)
+    cairo_rectangle (cr, 0, 0, masks->image_width, masks->image_height);
+    cairo_clip (cr);
+    cairo_scale (cr, masks->cell, masks->cell);
+    cairo_mask (cr, pattern);
+    cairo_restore (cr);
+
+    cairo_pattern_destroy (pattern);
+    cairo_surface_destroy (surface);
+}
+
+// Zebra stripes on the saturated pixels and focus peaking on the sharp edges (see limrendir_analysis.c)
+static void overlay_draw_analysis (LrdViewer *viewer, GtkWidget *widget, cairo_t *cr, const cairo_matrix_t *matrix)
+{
+    // Masks at about the screen resolution: as many image pixels per mask pixel as per screen (device) pixel
+    double const zoom = hypot (matrix->xx, matrix->yx) * gtk_widget_get_scale_factor (widget);
+    g_atomic_int_set (&viewer->analysis_cell_size, zoom > 0 ? MAX (1, (int) (1.0 / zoom)) : 1);
+
+    const LrdAnalysisMasks *masks = analysis_lock_masks (viewer);
+    if (masks != NULL && viewer->zebra && masks->zebra != NULL && masks->zebra_any) {
+        // Red / transparent stripes at 45 degrees ("\"), set in widget coordinates (same width at any zoom) and
+        // moving along the gradient (towards the upper right) with the time
+        double const period = OVERLAY_ZEBRA_PERIOD / G_SQRT2;    // per axis
+        double const offset = fmod (g_get_monotonic_time () / (double) G_USEC_PER_SEC * OVERLAY_ZEBRA_SPEED,
+                                    OVERLAY_ZEBRA_PERIOD) / G_SQRT2;
+        cairo_pattern_t *stripes = cairo_pattern_create_linear (offset, -offset, offset + period, -offset - period);
+        cairo_pattern_add_color_stop_rgba (stripes, 0.0, OVERLAY_ZEBRA_COLOR, 1.0);
+        cairo_pattern_add_color_stop_rgba (stripes, 0.5, OVERLAY_ZEBRA_COLOR, 1.0);
+        cairo_pattern_add_color_stop_rgba (stripes, 0.5, OVERLAY_ZEBRA_COLOR, 0.0);
+        cairo_pattern_add_color_stop_rgba (stripes, 1.0, OVERLAY_ZEBRA_COLOR, 0.0);
+        cairo_pattern_set_extend (stripes, CAIRO_EXTEND_REPEAT);
+        cairo_set_source (cr, stripes);
+        overlay_paint_mask (cr, matrix, masks, masks->zebra);
+        cairo_pattern_destroy (stripes);
+    }
+    if (masks != NULL && viewer->peaking != PEAKING_OFF && masks->peaking != NULL) {
+        cairo_set_source_rgb (cr, OVERLAY_PEAKING_COLOR);
+        overlay_paint_mask (cr, matrix, masks, masks->peaking);
+    }
+    analysis_unlock_masks (viewer);
+}
+
 // Draws the overlay on top of the frame drawn by gtksink
 static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *viewer)
 {
     int const width = viewer->display_image_width;
     int const height = viewer->display_image_height;
     gboolean const draw_grid = viewer->grid_type != GRID_NOGRID;
-    if (!viewer->show_roi && !draw_grid)
+    gboolean const draw_analysis = viewer->zebra || viewer->peaking != PEAKING_OFF;
+    if (!viewer->show_roi && !draw_grid && !draw_analysis)
         return FALSE;
 
     cairo_matrix_t matrix;
@@ -170,6 +233,10 @@ static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
     cairo_save (cr);
     // gtksink leaves the rectangle of the frame in the current path: start from an empty one
     cairo_new_path (cr);
+
+    // First, so that the ROI shading also dims them
+    if (draw_analysis)
+        overlay_draw_analysis (viewer, widget, cr, &matrix);
 
     // Paths are built in image coordinates, but stroked in widget coordinates (constant line widths)
     if (viewer->show_roi) {
@@ -330,13 +397,18 @@ void overlay_attach (LrdViewer *viewer, GtkWidget *video_widget)
     g_signal_connect (video_widget, "button-press-event", G_CALLBACK (overlay_button_press_cb), viewer);
     g_signal_connect (video_widget, "motion-notify-event", G_CALLBACK (overlay_motion_cb), viewer);
     g_signal_connect (video_widget, "button-release-event", G_CALLBACK (overlay_button_release_cb), viewer);
+    overlay_update_zebra_animation (viewer);
 }
 
 // Forgets the video widget (it is about to be removed)
 void overlay_detach (LrdViewer *viewer)
 {
-    if (viewer->video_widget != NULL)
+    if (viewer->video_widget != NULL) {
         g_signal_handlers_disconnect_by_data (viewer->video_widget, viewer);
+        if (viewer->zebra_tick_id != 0)
+            gtk_widget_remove_tick_callback (viewer->video_widget, viewer->zebra_tick_id);
+    }
+    viewer->zebra_tick_id = 0;
     viewer->video_widget = NULL;
     viewer->roi_dragging = FALSE;
 }
@@ -349,4 +421,40 @@ void overlay_queue_redraw (LrdViewer *viewer)
     gtk_widget_queue_draw (viewer->video_widget);
     overlay_update_cursor (viewer, viewer->video_widget);
     update_fov_buttons (viewer);
+}
+
+void overlay_queue_draw (LrdViewer *viewer)
+{
+    if (viewer->video_widget != NULL)
+        gtk_widget_queue_draw (viewer->video_widget);
+}
+
+// Moves the zebra stripes even when the frames come slowly (each draw places them according to the time)
+static gboolean overlay_zebra_tick_cb (GtkWidget *widget, GdkFrameClock *frame_clock, gpointer data)
+{
+    LrdViewer *viewer = data;
+    gint64 const now_us = gdk_frame_clock_get_frame_time (frame_clock);
+    if (now_us - viewer->zebra_last_tick_us < G_USEC_PER_SEC / OVERLAY_ZEBRA_ANIMATION_RATE)
+        return G_SOURCE_CONTINUE;
+    viewer->zebra_last_tick_us = now_us;
+
+    // Only if there are stripes to move
+    const LrdAnalysisMasks *masks = analysis_lock_masks (viewer);
+    gboolean const stripes = masks != NULL && masks->zebra != NULL && masks->zebra_any;
+    analysis_unlock_masks (viewer);
+    if (stripes)
+        gtk_widget_queue_draw (widget);
+    return G_SOURCE_CONTINUE;
+}
+
+void overlay_update_zebra_animation (LrdViewer *viewer)
+{
+    gboolean const animate = viewer->zebra && viewer->video_widget != NULL;
+    if (animate && viewer->zebra_tick_id == 0) {
+        viewer->zebra_tick_id = gtk_widget_add_tick_callback (viewer->video_widget, overlay_zebra_tick_cb,
+                                                              viewer, NULL);
+    } else if (!animate && viewer->zebra_tick_id != 0) {
+        gtk_widget_remove_tick_callback (viewer->video_widget, viewer->zebra_tick_id);
+        viewer->zebra_tick_id = 0;
+    }
 }

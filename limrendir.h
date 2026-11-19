@@ -85,6 +85,17 @@ typedef enum {
     GRID_CROSSHAIR    // one horizontal and one vertical line through the center, and a circle
 } GridType;
 
+// FOCUS PEAKING SENSITIVITY (p cycles through them, in this order)
+typedef enum {
+    PEAKING_OFF,
+    PEAKING_LOW,      // only the strongest edges
+    PEAKING_MEDIUM,
+    PEAKING_HIGH      // also weaker edges
+} PeakingLevel;
+
+// Worker thread and masks of the zebra stripes and focus peaking (limrendir_analysis.c)
+typedef struct _LrdAnalysis LrdAnalysis;
+
 // TYPE OF RECORD THAT IS WISHED
 typedef enum {
     RECORDTYPE_NONE,
@@ -321,6 +332,21 @@ struct  _LrdViewer {
     double roi_drag_widget_x, roi_drag_widget_y; // drag start, widget coordinates
     int roi_before_drag[4];             // x, y, w, h of the ROI when the drag started
     gboolean roi_crosshair_cursor;      // the crosshair cursor is shown (ROI drawing possible)
+
+    // Zebra stripes (saturated pixels) and focus peaking (sharp edges), drawn over the video like the grid
+    gboolean zebra;                     // w
+    PeakingLevel peaking;               // p
+    gint analysis_active;               // (atomic) a feature is on and the pixel format is supported: the only
+                                        // check made by the stream thread for each frame when the features are off
+    gint analysis_cell_size;            // (atomic) image pixels per mask pixel (about one screen pixel), see overlay
+    LrdAnalysis *analysis;              // the worker thread and the masks
+    guint zebra_tick_id;                // tick callback of the video widget moving the stripes, 0 if none
+    gint64 zebra_last_tick_us;
+    GtkWidget *zebra_toggle;
+    gulong zebra_toggle_clicked;
+    GtkWidget *peaking_toggle;
+    gulong peaking_toggle_clicked;
+    GtkWidget *analysis_label;          // status bar
 
     // download
     RecordingType record_type;
@@ -575,7 +601,19 @@ void constrain_roi_to_field_of_view(LrdViewer *viewer, int width, int height);
 void overlay_attach (LrdViewer *viewer, GtkWidget *video_widget);
 void overlay_detach (LrdViewer *viewer);
 void overlay_queue_redraw (LrdViewer *viewer);
+// Only redraws the video widget (overlay_queue_redraw also updates the cursor and the field of view buttons)
+void overlay_queue_draw (LrdViewer *viewer);
+// Starts or stops the animation of the zebra stripes, as needed
+void overlay_update_zebra_animation (LrdViewer *viewer);
 void crop_to_roi(LrdViewer *viewer);
+
+// Zebra and focus peaking controls (w, p and their buttons)
+void toggle_zebra (LrdViewer *viewer);
+void cycle_peaking (LrdViewer *viewer);
+void zebra_button_cb (GtkButton *button, LrdViewer *viewer);
+void peaking_button_cb (GtkButton *button, LrdViewer *viewer);
+// Makes the buttons and the status bar show the zebra and peaking state
+void update_analysis_controls (LrdViewer *viewer);
 
 // Video streaming
 

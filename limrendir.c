@@ -8,6 +8,7 @@
 #include <limrendir.h>
 #include <memory.h>
 #include <logroutines.h>
+#include "limrendir_analysis.h"
 
 #define ARV_VIEWER_NOTIFICATION_TIMEOUT 10
 
@@ -354,6 +355,12 @@ activate (GApplication *application)
     // Grid
     viewer->grid_type = GRID_NOGRID;
 
+    // Zebra stripes and focus peaking
+    viewer->zebra = FALSE;
+    viewer->peaking = PEAKING_OFF;
+    viewer->zebra_tick_id = 0;
+    viewer->zebra_last_tick_us = 0;
+
     // limrendir.ui is embedded in the executable (see limrendir.gresource.xml)
     builder = gtk_builder_new_from_resource ("/org/limrendir/limrendir.ui");
 
@@ -476,6 +483,12 @@ activate (GApplication *application)
 	g_signal_connect (viewer->whole_view_button, "clicked", G_CALLBACK (whole_view_button_cb), viewer);
 	g_signal_connect (viewer->zoom_in_button, "clicked", G_CALLBACK (zoom_in_button_cb), viewer);
 	g_signal_connect (viewer->zoom_out_button, "clicked", G_CALLBACK (zoom_out_button_cb), viewer);
+	viewer->zebra_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "zebra_button"));
+	viewer->peaking_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "peaking_button"));
+	viewer->analysis_label = GTK_WIDGET (gtk_builder_get_object (builder, "analysis_label"));
+	viewer->zebra_toggle_clicked = g_signal_connect (viewer->zebra_toggle, "clicked", G_CALLBACK (zebra_button_cb), viewer);
+	viewer->peaking_toggle_clicked = g_signal_connect (viewer->peaking_toggle, "clicked",
+	                                                   G_CALLBACK (peaking_button_cb), viewer);
 	viewer->flip_horizontal_clicked = g_signal_connect (viewer->flip_horizontal_toggle, "clicked",
 	                                                    G_CALLBACK (flip_horizontal_cb), viewer);
 	viewer->flip_vertical_clicked = g_signal_connect (viewer->flip_vertical_toggle, "clicked",
@@ -600,6 +613,7 @@ static void
 finalize (GObject *object)
 {
 	LrdViewer *viewer = (LrdViewer *) object;
+	analysis_finalize (viewer);
 	forget_displayed_frame (viewer);
 	g_mutex_clear (&viewer->last_frame_mutex);
 	G_OBJECT_CLASS (arv_viewer_parent_class)->finalize (object);
@@ -634,6 +648,7 @@ arv_viewer_init (LrdViewer *viewer)
 	viewer->register_cache_policy = ARV_REGISTER_CACHE_POLICY_DEFAULT;
 	viewer->range_check_policy = ARV_RANGE_CHECK_POLICY_DEFAULT;
 	g_mutex_init (&viewer->last_frame_mutex);
+	analysis_init (viewer);
 }
 
 static void

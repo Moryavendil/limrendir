@@ -53,10 +53,16 @@ add_executable( limrendir
         limrendir_overlay.c
         limrendir_pixelformat.h
         limrendir_pixelformat.c
+        limrendir_analysis.h
+        limrendir_analysis.c
 
         main.c limrendir_acquisition_settings.c
 
         ${LIMRENDIR_RESOURCES_C})
+
+# The zebra / focus peaking kernels run on every pixel of the analysed frames: always optimized, even when the rest
+# of the program is not (no CMAKE_BUILD_TYPE), so that the analysis thread uses as little CPU as possible
+set_source_files_properties(limrendir_analysis.c PROPERTIES COMPILE_OPTIONS "-O3")
 
 # Compiler warnings (GTK callbacks have fixed signatures, so unused parameters are normal)
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

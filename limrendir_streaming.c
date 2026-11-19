@@ -8,6 +8,7 @@
 #include <arvgvstreamprivate.h>
 #include <logroutines.h>
 #include "limrendir_pixelformat.h"
+#include "limrendir_analysis.h"
 
 
 // These are straight-up copy-pasted form gevCapture
@@ -197,7 +198,11 @@ static void new_buffer_cb (ArvStream *stream, LrdViewer *viewer)
             && can_display_buffer (viewer, stream)) {
             clock_last_snapshot_streaming = clock_now_streaming;
             remember_displayed_frame (viewer, arv_buffer);
-            gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), arv_to_gst_buffer(arv_buffer, stream, viewer));
+            GstBuffer *gst_buffer = arv_to_gst_buffer (arv_buffer, stream, viewer);
+            // Zebra / peaking: a boolean check when off, a non-blocking hand-off otherwise
+            if (g_atomic_int_get (&viewer->analysis_active))
+                analysis_offer_frame (viewer, gst_buffer, FALSE);
+            gst_app_src_push_buffer(GST_APP_SRC (viewer->appsrc), gst_buffer);
         } else {
             arv_stream_push_buffer(stream, arv_buffer);
         }
@@ -530,6 +535,9 @@ void start_display_pipeline (LrdViewer *viewer, const char *caps_string, gint fr
     // The overlay is drawn in the coordinates of these images
     viewer->display_image_width = width;
     viewer->display_image_height = height;
+    // Zebra and focus peaking are computed on these images
+    analysis_start (viewer, arv_camera_get_pixel_format (viewer->camera, NULL), width, height);
+    update_analysis_controls (viewer);
     gst_caps_set_simple (caps,
                          "width", G_TYPE_INT, width,
                          "height", G_TYPE_INT, height,
@@ -596,6 +604,9 @@ gboolean start_video (LrdViewer *viewer)
 void stop_video (LrdViewer *viewer)
 {
     log_debug("Stopping the video stream.");
+
+    // No more frames analysed, and the masks of this video are forgotten
+    analysis_stop (viewer);
 
 //    log_trace("    Stopping pipeline.");
     if (GST_IS_PIPELINE (viewer->pipeline))

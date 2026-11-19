@@ -3,6 +3,7 @@
 #include <arv.h>
 #include <limrendir.h>
 #include <logroutines.h>
+#include "limrendir_analysis.h"
 
 // HELP (h)
 // The descriptions are the same in the printed help, the help popover and the button tooltips (with [key] appended).
@@ -16,6 +17,8 @@ void help(LrdViewer *viewer) {
         printf("m .................. Toggle window maximization\n");
         printf("g .................. Cycle grid overlay\n");
         printf("o .................. Toggle image inversion\n");
+        printf("w .................. Toggle zebra stripes (saturated pixels)\n");
+        printf("p .................. Cycle focus peaking (off / low / medium / high)\n");
     if (!is_record_button_active(viewer)) {
         printf("%s*** Camera Control ***%s\n", tcMAG, tcNRM);
         printf("+/- ................ Change exposure time (1 us)\n");
@@ -48,14 +51,18 @@ void setup_help_popover (LrdViewer *viewer) {
                                                           "F11\n"
                                                           "m\n"
                                                           "g\n"
-                                                          "o");
+                                                          "o\n"
+                                                          "w\n"
+                                                          "p");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_1), "\n"
                                                                   "Show the key bindings\n"
                                                                   "Quit\n"
                                                                   "Toggle fullscreen\n"
                                                                   "Toggle window maximization\n"
                                                                   "Cycle grid overlay\n"
-                                                                  "Toggle image inversion");
+                                                                  "Toggle image inversion\n"
+                                                                  "Toggle zebra stripes (saturated pixels)\n"
+                                                                  "Cycle focus peaking (off / low / medium / high)");
     // CAMERA CONTROL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_2), "<b>Camera Control</b>\n"
                                                           "+/-\n"
@@ -579,6 +586,96 @@ void grid_button_cb (GtkButton *button, LrdViewer *viewer) {
     toggle_grid(viewer);
 }
 
+// ZEBRA STRIPES (w) AND FOCUS PEAKING (p), see limrendir_analysis.c
+
+static const char *peaking_level_name (PeakingLevel level)
+{
+    switch (level) {
+        case PEAKING_LOW: return "low";
+        case PEAKING_MEDIUM: return "medium";
+        case PEAKING_HIGH: return "high";
+        default: return "off";
+    }
+}
+
+static void show_analysis_not_available (LrdViewer *viewer)
+{
+    arv_viewer_show_notification (viewer, "Zebra and focus peaking are not available for this pixel format",
+                                  "Only Mono8 and Mono12 (also Mono12p and Mono12Packed) are supported.");
+}
+
+void update_analysis_controls (LrdViewer *viewer)
+{
+    if (viewer->zebra_toggle == NULL)
+        return;
+
+    // The buttons show the state, without acting on it
+    gboolean const peaking = viewer->peaking != PEAKING_OFF;
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->zebra_toggle)) != viewer->zebra) {
+        g_signal_handler_block (viewer->zebra_toggle, viewer->zebra_toggle_clicked);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->zebra_toggle), viewer->zebra);
+        g_signal_handler_unblock (viewer->zebra_toggle, viewer->zebra_toggle_clicked);
+    }
+    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (viewer->peaking_toggle)) != peaking) {
+        g_signal_handler_block (viewer->peaking_toggle, viewer->peaking_toggle_clicked);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (viewer->peaking_toggle), peaking);
+        g_signal_handler_unblock (viewer->peaking_toggle, viewer->peaking_toggle_clicked);
+    }
+    g_autofree char *tooltip = g_strdup_printf ("Cycle focus peaking: off / low / medium / high sensitivity "
+                                                "(now %s) [P]", peaking_level_name (viewer->peaking));
+    gtk_widget_set_tooltip_text (viewer->peaking_toggle, tooltip);
+
+    // Status bar: "Zebra · Peaking: medium", hidden when both are off
+    GString *text = g_string_new (viewer->zebra ? "Zebra" : "");
+    if (peaking)
+        g_string_append_printf (text, "%sPeaking: %s", text->len > 0 ? " · " : "",
+                                peaking_level_name (viewer->peaking));
+    gtk_label_set_text (GTK_LABEL (viewer->analysis_label), text->str);
+    gtk_widget_set_visible (viewer->analysis_label, text->len > 0);
+    g_string_free (text, TRUE);
+
+    overlay_update_zebra_animation (viewer);
+    overlay_queue_draw (viewer);
+}
+
+void toggle_zebra (LrdViewer *viewer)
+{
+    if (!viewer->zebra && !analysis_is_available (viewer)) {
+        show_analysis_not_available (viewer);
+    } else {
+        viewer->zebra = !viewer->zebra;
+        log_debug ("Zebra stripes %s.", viewer->zebra ? "on" : "off");
+        analysis_settings_changed (viewer);
+    }
+    update_analysis_controls (viewer);
+}
+
+void cycle_peaking (LrdViewer *viewer)
+{
+    // off -> low -> medium -> high -> off
+    if (viewer->peaking == PEAKING_OFF && !analysis_is_available (viewer)) {
+        show_analysis_not_available (viewer);
+    } else {
+        switch (viewer->peaking) {
+            case PEAKING_OFF: viewer->peaking = PEAKING_LOW; break;
+            case PEAKING_LOW: viewer->peaking = PEAKING_MEDIUM; break;
+            case PEAKING_MEDIUM: viewer->peaking = PEAKING_HIGH; break;
+            default: viewer->peaking = PEAKING_OFF; break;
+        }
+        log_debug ("Focus peaking: %s.", peaking_level_name (viewer->peaking));
+        analysis_settings_changed (viewer);
+    }
+    update_analysis_controls (viewer);
+}
+
+void zebra_button_cb (GtkButton *button, LrdViewer *viewer) {
+    toggle_zebra(viewer);
+}
+
+void peaking_button_cb (GtkButton *button, LrdViewer *viewer) {
+    cycle_peaking(viewer);
+}
+
 // FIELD OF VIEW BUTTONS (same as the r, c, a, z and Z keys)
 void roi_button_cb (GtkButton *button, LrdViewer *viewer) {
     toggle_roi(viewer);
@@ -659,6 +756,12 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
             break;
         case GDK_KEY_o:
             toggle_invert(viewer);
+            break;
+        case GDK_KEY_w:
+            toggle_zebra(viewer);
+            break;
+        case GDK_KEY_p:
+            cycle_peaking(viewer);
             break;
         case GDK_KEY_F11:
             toggle_fullscreen(viewer);

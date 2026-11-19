@@ -7,5 +7,7 @@
     <file preprocess="xml-stripblanks">icons/scalable/actions/limrendir-crop-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/limrendir-invert-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/limrendir-whole-view-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/limrendir-zebra-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/limrendir-peaking-symbolic.svg</file>
   </gresource>
 </gresources>

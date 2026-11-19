@@ -83,6 +83,17 @@ Choose the format in the recording settings, then press the record button or the
 
 mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
 
+### Exposure and focus aids: zebra stripes and focus peaking
+
+* **Zebra stripes** (key `w`, or the striped button of the image bar): moving red diagonal stripes over the saturated pixels (8-bit value of at least 253, 12-bit value of at least 4063).
+* **Focus peaking** (key `p`, or the button next to it): the sharp edges are shown in yellow, which helps to focus. Each press cycles through off / low / medium / high sensitivity (low shows only the strongest edges).
+
+The current state is shown at the right of the status bar. Both are drawn over the displayed video only: snapshots and recordings are not affected. They work during recordings too (updated less often, to leave the computer to the recording), and never slow down the acquisition: when the computer is busy, they are simply updated less often.
+
+They are available for the Mono8 and Mono12 (Mono12, Mono12p, Mono12Packed) pixel formats only.
+
+Press `h` in the video to print all the key bindings (they are also listed in the keyboard help button).
+
 ### Trying limrendir without a camera
 
 Using the option `--fake-camera` creates a simpler fake camera inside limrendir.
@@ -180,7 +191,7 @@ I am not a professional software developer so the code quality might not be perf
 ? More settings remembered between sessions:
 - the grid spacing (fine = 60 px / medium = 120 px / coarse = 240 px)
 
-? Add zebra patterns. Add focus aid.
+* Zebra stripes and focus peaking for the other pixel formats (Mono10, Mono14, Mono16, Bayer and color formats): they are currently only available for Mono8 and Mono12 (Mono12p, Mono12Packed).
 
 
 ## Licence
