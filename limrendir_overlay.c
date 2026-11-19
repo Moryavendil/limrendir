@@ -25,7 +25,7 @@
 #define OVERLAY_LABEL_RADIUS 4.0
 #define OVERLAY_ZEBRA_COLOR 1.0, 0.0, 0.0     // red (r, g, b)
 #define OVERLAY_ZEBRA_PERIOD 12.0             // distance between two stripes (screen pixels), half of it red
-#define OVERLAY_ZEBRA_SPEED 10.0              // screen pixels per second
+#define OVERLAY_ZEBRA_SPEED 30.0              // screen pixels per second
 #define OVERLAY_ZEBRA_ANIMATION_RATE 25       // redraws per second moving the stripes (even if the camera is slower)
 #define OVERLAY_PEAKING_COLOR 1.0, 1.0, 0.0   // yellow (r, g, b)
 
