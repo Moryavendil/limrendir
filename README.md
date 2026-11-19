@@ -65,6 +65,12 @@ Download this project and compile it:
 
 Use option `--help` to know about the available options.
 
+#### Launching limrendir with a click
+
+    ./install-launcher.sh --desktop
+
+Limrendir then appears in the applications (from there, right click on it to pin it to the dock) and on the desktop (without `--desktop`, only in the applications). A terminal opens next to it to show its messages; use `--no-terminal` to remove it. It also creates `~/.local/bin/limrendir`, so that typing `limrendir` in any terminal runs it (if `~/.local/bin` was not in your `PATH`, open a new terminal or log in again). Run the script again after moving the limrendir folder. `./uninstall-launcher.sh` removes the launchers and the command.
+
 ## How to use
 
 ### Trying limrendir without a camera
