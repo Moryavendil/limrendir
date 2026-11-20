@@ -57,6 +57,7 @@ add_executable( limrendir
         limrendir_analysis.c
         limrendir_metrics.h
         limrendir_metrics.c
+        limrendir_metrics_panel.c
 
         main.c limrendir_acquisition_settings.c
 

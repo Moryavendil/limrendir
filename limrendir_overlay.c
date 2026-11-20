@@ -30,7 +30,7 @@
 #define OVERLAY_PEAKING_COLOR 1.0, 1.0, 0.0   // yellow (r, g, b)
 
 // Matrix mapping image coordinates to the rotated / flipped image, for each videoflip method
-static void videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix)
+void overlay_videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix)
 {
     // cairo_matrix_init (m, xx, yx, xy, yy, x0, y0): x' = xx x + xy y + x0 ; y' = yx x + yy y + y0
     switch (method) {
@@ -70,7 +70,7 @@ static gboolean overlay_image_to_widget_matrix_and_rect (LrdViewer *viewer, GtkW
         return FALSE;
 
     cairo_matrix_t flip, placement;
-    videoflip_matrix (method, width, height, &flip);
+    overlay_videoflip_matrix (method, width, height, &flip);
     cairo_matrix_init_translate (&placement, result.x, result.y);
     cairo_matrix_scale (&placement, (double) result.w / shown_width, (double) result.h / shown_height);
     cairo_matrix_multiply (matrix, &flip, &placement); // first the flip, then the placement
@@ -221,6 +221,8 @@ static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
     int const width = viewer->display_image_width;
     int const height = viewer->display_image_height;
     gboolean const draw_grid = viewer->grid_type != GRID_NOGRID;
+    // The metrics follow the ROI (whatever changed it: keys, mouse, crop...)
+    analysis_update_metrics_region (viewer);
     gboolean const draw_analysis = viewer->zebra || viewer->peaking != PEAKING_OFF;
     if (!viewer->show_roi && !draw_grid && !draw_analysis)
         return FALSE;

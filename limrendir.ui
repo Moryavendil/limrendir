@@ -1306,6 +1306,21 @@ Copyright (C)
                             </child>
                           </object>
                         </child>
+                        <child>
+                          <object class="GtkToggleButton" id="metrics_button">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="receives-default">True</property>
+                            <property name="tooltip-text" translatable="yes">Toggle the image metrics panel: histogram, alignment and Fourier transform of the ROI (or of the whole image) [T]</property>
+                            <child>
+                              <object class="GtkImage">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="icon-name">limrendir-metrics-symbolic</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                   </object>
@@ -1316,17 +1331,43 @@ Copyright (C)
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkFrame" id="video_frame">
+                  <object class="GtkBox" id="video_hbox">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="label-xalign">0</property>
-                    <property name="label-yalign">0</property>
-                    <property name="shadow-type">none</property>
                     <child>
-                      <placeholder/>
+                      <object class="GtkFrame" id="video_frame">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label-xalign">0</property>
+                        <property name="label-yalign">0</property>
+                        <property name="shadow-type">none</property>
+                        <child>
+                          <placeholder/>
+                        </child>
+                        <child type="label_item">
+                          <placeholder/>
+                        </child>
+                      </object>
+                      <packing>
+                        <property name="expand">True</property>
+                        <property name="fill">True</property>
+                        <property name="position">0</property>
+                      </packing>
                     </child>
-                    <child type="label_item">
-                      <placeholder/>
+                    <child>
+                      <object class="GtkRevealer" id="metrics_revealer">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="transition-type">none</property>
+                        <child>
+                          <placeholder/>
+                        </child>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">1</property>
+                      </packing>
                     </child>
                   </object>
                   <packing>

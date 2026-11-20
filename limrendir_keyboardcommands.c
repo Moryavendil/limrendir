@@ -19,6 +19,7 @@ void help(LrdViewer *viewer) {
         printf("o .................. Toggle image inversion\n");
         printf("w .................. Toggle zebra stripes (saturated pixels)\n");
         printf("p .................. Cycle focus peaking (off / low / medium / high)\n");
+        printf("t .................. Toggle the image metrics panel (histogram, alignment, Fourier)\n");
     if (!is_record_button_active(viewer)) {
         printf("%s*** Camera Control ***%s\n", tcMAG, tcNRM);
         printf("+/- ................ Change exposure time (1 us)\n");
@@ -53,7 +54,8 @@ void setup_help_popover (LrdViewer *viewer) {
                                                           "g\n"
                                                           "o\n"
                                                           "w\n"
-                                                          "p");
+                                                          "p\n"
+                                                          "t");
     gtk_label_set_markup (GTK_LABEL (viewer->help_description_1), "\n"
                                                                   "Show the key bindings\n"
                                                                   "Quit\n"
@@ -62,7 +64,8 @@ void setup_help_popover (LrdViewer *viewer) {
                                                                   "Cycle grid overlay\n"
                                                                   "Toggle image inversion\n"
                                                                   "Toggle zebra stripes (saturated pixels)\n"
-                                                                  "Cycle focus peaking (off / low / medium / high)");
+                                                                  "Cycle focus peaking (off / low / medium / high)\n"
+                                                                  "Toggle the image metrics panel (histogram, alignment, Fourier)");
     // CAMERA CONTROL
     gtk_label_set_markup (GTK_LABEL (viewer->help_key_2), "<b>Camera Control</b>\n"
                                                           "+/-\n"
@@ -762,6 +765,9 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
             break;
         case GDK_KEY_p:
             cycle_peaking(viewer);
+            break;
+        case GDK_KEY_t:
+            toggle_metrics_panel(viewer);
             break;
         case GDK_KEY_F11:
             toggle_fullscreen(viewer);

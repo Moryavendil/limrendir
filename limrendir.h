@@ -348,6 +348,16 @@ struct  _LrdViewer {
     gulong peaking_toggle_clicked;
     GtkWidget *analysis_label;          // status bar
 
+    // Image metrics side panel (t): histogram, alignment and Fourier transform of the ROI (or of the whole image)
+    GtkWidget *metrics_toggle;          // image bar button
+    GtkWidget *metrics_revealer;        // holds the panel, on the right of the video
+    struct _LrdMetricsPanel *metrics_panel;    // its widgets (limrendir_metrics_panel.c)
+    gboolean metrics_visible;
+    gboolean metrics_histogram;         // sections expanded (only those are computed)
+    gboolean metrics_alignment;
+    gboolean metrics_fft;
+    int metrics_window_growth;          // width added to the window to show the panel, 0 if none
+
     // download
     RecordingType record_type;
     // Current recording: the temporary file (folder for gcv) it is written in, and the name proposed when it is
@@ -606,6 +616,19 @@ void overlay_queue_draw (LrdViewer *viewer);
 // Starts or stops the animation of the zebra stripes, as needed
 void overlay_update_zebra_animation (LrdViewer *viewer);
 void crop_to_roi(LrdViewer *viewer);
+
+// Matrix mapping image coordinates to the rotated / flipped image, for a videoflip method
+void overlay_videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix);
+
+// Image metrics side panel (limrendir_metrics_panel.c)
+typedef struct _LrdMetricsPanel LrdMetricsPanel;
+// Builds the panel in viewer->metrics_revealer and connects viewer->metrics_toggle
+void metrics_panel_init (LrdViewer *viewer);
+void metrics_panel_finalize (LrdViewer *viewer);
+// Shows the latest metrics (or their absence): called when new ones are computed, and when the video stops
+void metrics_panel_update (LrdViewer *viewer);
+// Shows / hides the panel (t)
+void toggle_metrics_panel (LrdViewer *viewer);
 
 // Zebra and focus peaking controls (w, p and their buttons)
 void toggle_zebra (LrdViewer *viewer);

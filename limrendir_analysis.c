@@ -12,7 +12,7 @@
 #include <logroutines.h>
 #include "limrendir_analysis.h"
 
-// ZEBRA STRIPES AND FOCUS PEAKING: worker thread and kernels
+// ZEBRA STRIPES, FOCUS PEAKING AND IMAGE METRICS: worker thread and kernels
 //
 // The acquisition frame rate must never suffer, while previewing or recording:
 // - The stream thread only offers frames (analysis_offer_frame): a time check, a g_mutex_trylock and, if the worker
@@ -37,6 +37,13 @@
 // This also thickens 1-pixel edges, which would otherwise disappear when the image is shown smaller.
 // They are double-buffered: the worker fills 'back', then swaps it with 'front' (drawn by the main thread) under
 // mask_mutex, and asks the main loop to redraw.
+//
+// The image metrics of the side panel (histogram, alignment, Fourier transform, see limrendir_metrics.c) use the
+// same hand-off and the same worker, at a lower rate: a frame may be taken for the masks, the metrics or both. While
+// the frame is held, the worker only reads the rows of the region (ROI or whole image) into small accumulators; the
+// heavy part (Fourier transforms, angle search) runs after the frame is released. The metrics frames are spaced so
+// that they take at most METRICS_MAX_CPU_FRACTION of the time of a core. The results are double-buffered like the
+// masks (metrics_mutex), and the panel is redrawn from the main loop.
 
 // Maximum analysis rates (frames per second)
 #define ANALYSIS_PREVIEW_MAX_RATE 20
@@ -46,6 +53,11 @@
 // pixel in x and y: the row kernels stay vectorized, which makes them faster than strided ones doing a quarter of the
 // work. A sharp edge still shows, since the Sobel kernel spans 3 rows.
 #define ANALYSIS_RECORDING_STEP 2
+
+// Maximum rates of the image metrics (frames per second), and largest fraction of a core they may use
+#define METRICS_PREVIEW_MAX_RATE 4
+#define METRICS_RECORDING_MAX_RATE 1
+#define METRICS_MAX_CPU_FRACTION 0.25
 
 // Zebra: pixels at or above this value, in native units
 #define ANALYSIS_ZEBRA_THRESHOLD_8BIT 253
@@ -72,6 +84,9 @@ typedef struct {
     int peaking_threshold;     // native units, 0 if peaking is off
     guint generation;          // see LrdAnalysis
     gboolean recording;
+    gboolean masks;            // compute the masks for this frame (pending jobs only)
+    gboolean metrics;          // compute the metrics for this frame (pending jobs only)
+    MetricsRequest metrics_request;    // the metrics asked, the layout of the frames and the region
 } AnalysisJob;
 
 // One set of masks and its storage
@@ -92,13 +107,17 @@ struct _LrdAnalysis {
     GThread *thread;           // the worker, started when first needed (main thread)
     gboolean quit;
     gboolean running;          // between analysis_start and analysis_stop
-    gboolean accepting;        // running, a feature is on and the pixel format is supported
+    gboolean accepting;        // masks_accepting or metrics_accepting
+    gboolean masks_accepting;  // running, zebra or peaking is on and the pixel format is supported
+    gboolean metrics_accepting;    // running, the metrics panel is shown and the pixel format is supported
     gboolean busy;             // the worker analyses a frame
     GstBuffer *pending;        // frame waiting for the worker (a reference), or NULL
     AnalysisJob pending_job;
     AnalysisJob settings;      // for the next frames (written by the main thread). settings.generation changes when
                                // the video starts or stops: masks of an older generation are discarded.
-    gint64 last_offer_us;      // stream thread only
+    gint64 last_offer_us;      // last frame taken for the masks, stream thread only
+    gint64 last_metrics_us;    // last frame taken for the metrics, stream thread only
+    gint metrics_interval_us;  // (atomic) shortest interval between metrics frames, from their computation time
 
     // Masks
     GMutex mask_mutex;
@@ -107,6 +126,20 @@ struct _LrdAnalysis {
     gboolean front_valid;
     guint front_generation;
     guint redraw_source;       // idle redraw requested by the worker, 0 if none
+
+    // Metrics
+    GMutex metrics_mutex;
+    LrdMetrics metrics_front;  // shown by the main thread
+    LrdMetrics metrics_back;   // filled by the worker
+    gboolean metrics_front_valid;
+    guint metrics_front_generation;
+    guint metrics_redraw_source;    // idle update of the panel requested by the worker, 0 if none
+    MetricsAccumulator *metrics_acc;    // worker only
+    gint64 metrics_stats_first_us;
+    guint metrics_stats_n_frames;
+    double metrics_stats_rows_ms, metrics_stats_finish_ms;
+    // (main thread only) the region of the metrics in the settings, to see when the ROI changed
+    int metrics_region[4];
 
     // Worker only
     guint8 *hits;              // per-pixel result of one row
@@ -201,25 +234,31 @@ static guint8 *cleared_mask (guint8 **data, gsize *allocated, gsize size)
     return *data;
 }
 
-// Computes the masks of a frame. Returns FALSE if the frame cannot be read.
-static gboolean analysis_compute (LrdAnalysis *a, GstBuffer *buffer, const AnalysisJob *job, int cell,
-                                  AnalysisMaskBuffers *out)
+// Rows are padded to a multiple of 4 bytes (see arv_to_gst_buffer)
+static gsize frame_stride (int width, int bytes_per_pixel)
+{
+    return ((gsize) width * bytes_per_pixel + 3) & ~(gsize) 3;
+}
+
+// Whether a mapped frame is big enough for width x height pixels of bytes_per_pixel bytes
+static gboolean frame_fits (const GstMapInfo *map, int width, int height, int bytes_per_pixel)
+{
+    if (map->size >= frame_stride (width, bytes_per_pixel) * (height - 1) + (gsize) width * bytes_per_pixel)
+        return TRUE;
+    log_debug ("Analysis: frame of %" G_GSIZE_FORMAT " bytes, too small for %dx%d (%d bytes per pixel).",
+               map->size, width, height, bytes_per_pixel);
+    return FALSE;
+}
+
+// Computes the masks of a (mapped) frame. Returns FALSE if the frame cannot be read.
+static gboolean analysis_compute_masks (LrdAnalysis *a, const GstMapInfo *map, const AnalysisJob *job, int cell,
+                                        AnalysisMaskBuffers *out)
 {
     int const width = job->width, height = job->height;
     int const bytes_per_pixel = job->depth == 8 ? 1 : 2;
-    // Rows are padded to a multiple of 4 bytes (see arv_to_gst_buffer)
-    gsize const stride = ((gsize) width * bytes_per_pixel + 3) & ~(gsize) 3;
-    if (width < 3 || height < 3 || job->depth == 0)
+    gsize const stride = frame_stride (width, bytes_per_pixel);
+    if (width < 3 || height < 3 || job->depth == 0 || !frame_fits (map, width, height, bytes_per_pixel))
         return FALSE;
-
-    GstMapInfo map;
-    if (!gst_buffer_map (buffer, &map, GST_MAP_READ))
-        return FALSE;
-    if (map.size < stride * (height - 1) + (gsize) width * bytes_per_pixel) {
-        log_debug ("Analysis: frame of %" G_GSIZE_FORMAT " bytes, too small for %dx%d.", map.size, width, height);
-        gst_buffer_unmap (buffer, &map);
-        return FALSE;
-    }
 
     cell = CLAMP (cell, 1, MAX (width, height));
     int const step = job->recording ? MIN (ANALYSIS_RECORDING_STEP, cell) : 1;    // between analysed rows
@@ -242,7 +281,7 @@ static gboolean analysis_compute (LrdAnalysis *a, GstBuffer *buffer, const Analy
     }
     guint8 *const hits = a->hits;
 
-    const guint8 *const data = map.data;
+    const guint8 *const data = map->data;
     for (int y = 0; y < height; y += step) {
         const guint8 *row = data + (gsize) y * stride;
         gsize const mask_offset = (gsize) (y / cell) * m->stride;
@@ -262,8 +301,27 @@ static gboolean analysis_compute (LrdAnalysis *a, GstBuffer *buffer, const Analy
             reduce_row (hits, width, cell, m->peaking + mask_offset);
         }
     }
+    return TRUE;
+}
 
-    gst_buffer_unmap (buffer, &map);
+// Reads the rows of the region of a (mapped) frame into the metrics accumulator. Returns FALSE if the frame
+// cannot be read.
+static gboolean analysis_accumulate_metrics (LrdAnalysis *a, const GstMapInfo *map, const AnalysisJob *job)
+{
+    // (the alignment is averaged over the frames of a video: its generation is the series)
+    MetricsRequest request = job->metrics_request;
+    request.series = job->generation;
+    request.time_us = g_get_monotonic_time ();
+    const MetricsRequest *r = &request;
+    int const bytes_per_pixel = r->layout.bytes_per_pixel;
+    if (bytes_per_pixel == 0 || !frame_fits (map, job->width, job->height, bytes_per_pixel) ||
+        r->x < 0 || r->y < 0 || r->x + r->width > job->width || r->y + r->height > job->height ||
+        !metrics_begin (a->metrics_acc, r))
+        return FALSE;
+    gsize const stride = frame_stride (job->width, bytes_per_pixel);
+    const guint8 *const first = map->data + (gsize) r->y * stride + (gsize) r->x * bytes_per_pixel;
+    for (int y = 0; y < r->height; y++)
+        metrics_add_row (a->metrics_acc, first + (gsize) y * stride, y);
     return TRUE;
 }
 
@@ -289,6 +347,39 @@ static gboolean analysis_redraw_idle (gpointer data)
     g_mutex_unlock (&a->mask_mutex);
     overlay_queue_draw (viewer);
     return G_SOURCE_REMOVE;
+}
+
+static gboolean analysis_metrics_idle (gpointer data)
+{
+    LrdViewer *viewer = data;
+    LrdAnalysis *a = viewer->analysis;
+    g_mutex_lock (&a->metrics_mutex);
+    a->metrics_redraw_source = 0;
+    g_mutex_unlock (&a->metrics_mutex);
+    metrics_panel_update (viewer);
+    return G_SOURCE_REMOVE;
+}
+
+// Logs (debug level) the rate and the times of the metrics, every ANALYSIS_STATS_INTERVAL_US
+static void analysis_update_metrics_stats (LrdAnalysis *a, gint64 start_us, double rows_ms, double finish_ms)
+{
+    log_trace ("Metrics of a frame: %.2f ms reading the rows (frame held), %.2f ms after", rows_ms, finish_ms);
+    if (a->metrics_stats_n_frames == 0 || start_us - a->metrics_stats_first_us > 4 * ANALYSIS_STATS_INTERVAL_US) {
+        a->metrics_stats_first_us = start_us;
+        a->metrics_stats_n_frames = 0;
+        a->metrics_stats_rows_ms = 0;
+        a->metrics_stats_finish_ms = 0;
+    }
+    a->metrics_stats_n_frames++;
+    a->metrics_stats_rows_ms += rows_ms;
+    a->metrics_stats_finish_ms += finish_ms;
+    if (a->metrics_stats_n_frames > 1 && start_us - a->metrics_stats_first_us >= ANALYSIS_STATS_INTERVAL_US) {
+        log_debug ("Image metrics: %.1f frames/s, %.2f ms per frame reading the rows (frame held), %.2f ms after",
+                   (a->metrics_stats_n_frames - 1) * (double) G_USEC_PER_SEC / (start_us - a->metrics_stats_first_us),
+                   a->metrics_stats_rows_ms / a->metrics_stats_n_frames,
+                   a->metrics_stats_finish_ms / a->metrics_stats_n_frames);
+        a->metrics_stats_n_frames = 0;
+    }
 }
 
 // Logs (debug level) the effective analysis rate and the time per frame, every ANALYSIS_STATS_INTERVAL_US
@@ -344,18 +435,52 @@ static gpointer analysis_thread (gpointer data)
         g_mutex_unlock (&a->mutex);
 
         gint64 const start_us = g_get_monotonic_time ();
-        gboolean const computed = analysis_compute (a, buffer, &job, g_atomic_int_get (&viewer->analysis_cell_size),
-                                                    &a->back);
+        gboolean masks_computed = FALSE, metrics_read = FALSE;
+        double rows_ms = 0;    // time spent reading the rows for the metrics
+        gint64 masks_us = 0;
+        GstMapInfo map;
+        if (gst_buffer_map (buffer, &map, GST_MAP_READ)) {
+            if (job.masks)
+                masks_computed = analysis_compute_masks (a, &map, &job,
+                                                         g_atomic_int_get (&viewer->analysis_cell_size), &a->back);
+            gint64 const metrics_start_us = g_get_monotonic_time ();
+            masks_us = metrics_start_us - start_us;
+            if (job.metrics)
+                metrics_read = analysis_accumulate_metrics (a, &map, &job);
+            gst_buffer_unmap (buffer, &map);
+            rows_ms = (g_get_monotonic_time () - metrics_start_us) / 1000.0;
+        }
         // The stream buffer goes back to the acquisition at once
         gst_buffer_unref (buffer);
-        gint64 const duration_us = g_get_monotonic_time () - start_us;
+
+        // Metrics: the heavy part, without the frame
+        if (metrics_read) {
+            metrics_finish (a->metrics_acc, &a->metrics_back);
+            double const finish_ms = a->metrics_back.finish_ms;
+            // Next metrics frame not before (computation time) / METRICS_MAX_CPU_FRACTION
+            double const interval_us = (rows_ms + finish_ms) * 1000.0 / METRICS_MAX_CPU_FRACTION;
+            g_atomic_int_set (&a->metrics_interval_us, (gint) MIN (interval_us, 10.0 * G_USEC_PER_SEC));
+            analysis_update_metrics_stats (a, start_us, rows_ms, finish_ms);
+        }
 
         g_mutex_lock (&a->mutex);
         a->busy = FALSE;
         gboolean const current = job.generation == a->settings.generation;
         g_mutex_unlock (&a->mutex);
 
-        if (!computed || !current)
+        if (metrics_read && current) {
+            g_mutex_lock (&a->metrics_mutex);
+            LrdMetrics const swap = a->metrics_front;
+            a->metrics_front = a->metrics_back;
+            a->metrics_back = swap;
+            a->metrics_front_valid = TRUE;
+            a->metrics_front_generation = job.generation;
+            if (a->metrics_redraw_source == 0)
+                a->metrics_redraw_source = g_idle_add (analysis_metrics_idle, viewer);
+            g_mutex_unlock (&a->metrics_mutex);
+        }
+
+        if (!masks_computed || !current)
             continue;
 
         g_mutex_lock (&a->mask_mutex);
@@ -368,7 +493,7 @@ static gpointer analysis_thread (gpointer data)
             a->redraw_source = g_idle_add (analysis_redraw_idle, viewer);
         g_mutex_unlock (&a->mask_mutex);
 
-        analysis_update_stats (a, &job, start_us, duration_us);
+        analysis_update_stats (a, &job, start_us, masks_us);
     }
     return NULL;
 }
@@ -399,6 +524,8 @@ void analysis_init (LrdViewer *viewer)
     g_mutex_init (&a->mutex);
     g_cond_init (&a->cond);
     g_mutex_init (&a->mask_mutex);
+    g_mutex_init (&a->metrics_mutex);
+    a->metrics_acc = metrics_accumulator_new ();
     viewer->analysis = a;
     viewer->analysis_active = FALSE;
     viewer->analysis_cell_size = 1;
@@ -422,6 +549,12 @@ void analysis_finalize (LrdViewer *viewer)
     g_clear_pointer (&a->pending, gst_buffer_unref);
     if (a->redraw_source != 0)
         g_source_remove (a->redraw_source);
+    if (a->metrics_redraw_source != 0)
+        g_source_remove (a->metrics_redraw_source);
+    metrics_clear (&a->metrics_front);
+    metrics_clear (&a->metrics_back);
+    metrics_accumulator_free (a->metrics_acc);
+    g_mutex_clear (&a->metrics_mutex);
     g_free (a->front.zebra_data);
     g_free (a->front.peaking_data);
     g_free (a->back.zebra_data);
@@ -434,10 +567,26 @@ void analysis_finalize (LrdViewer *viewer)
     viewer->analysis = NULL;
 }
 
+// The region of the metrics: the ROI if it is shown, else the whole image (main thread)
+static void metrics_region (LrdViewer *viewer, const AnalysisJob *settings, int region[4])
+{
+    int const width = settings->width, height = settings->height;
+    if (viewer->show_roi && viewer->roi_w > 0 && viewer->roi_h > 0 && width > 0 && height > 0) {
+        region[0] = CLAMP (viewer->roi_x, 0, width - 1);
+        region[1] = CLAMP (viewer->roi_y, 0, height - 1);
+        region[2] = CLAMP (viewer->roi_w, 1, width - region[0]);
+        region[3] = CLAMP (viewer->roi_h, 1, height - region[1]);
+    } else {
+        region[0] = region[1] = 0;
+        region[2] = width;
+        region[3] = height;
+    }
+}
+
 void analysis_settings_changed (LrdViewer *viewer)
 {
     LrdAnalysis *a = viewer->analysis;
-    gboolean const on = viewer->zebra || viewer->peaking != PEAKING_OFF;
+    gboolean const masks_on = viewer->zebra || viewer->peaking != PEAKING_OFF;
 
     double fraction = 0;
     switch (viewer->peaking) {
@@ -453,7 +602,21 @@ void analysis_settings_changed (LrdViewer *viewer)
     s->zebra = viewer->zebra;
     s->zebra_threshold = s->depth == 12 ? ANALYSIS_ZEBRA_THRESHOLD_12BIT : ANALYSIS_ZEBRA_THRESHOLD_8BIT;
     s->peaking_threshold = fraction > 0 ? MAX (1, (int) (fraction * full_scale + 0.5)) : 0;
-    a->accepting = a->running && on && s->depth != 0;
+    a->masks_accepting = a->running && masks_on && s->depth != 0;
+
+    MetricsRequest *r = &s->metrics_request;
+    r->histogram = viewer->metrics_histogram;
+    r->alignment = viewer->metrics_alignment;
+    r->fft = viewer->metrics_fft;
+    metrics_region (viewer, s, a->metrics_region);
+    r->x = a->metrics_region[0];
+    r->y = a->metrics_region[1];
+    r->width = a->metrics_region[2];
+    r->height = a->metrics_region[3];
+    a->metrics_accepting = a->running && viewer->metrics_visible && (r->histogram || r->alignment || r->fft) &&
+                           r->layout.samples != METRICS_SAMPLES_NONE && r->width > 0 && r->height > 0;
+
+    a->accepting = a->masks_accepting || a->metrics_accepting;
     gboolean const accepting = a->accepting;
     g_mutex_unlock (&a->mutex);
 
@@ -461,7 +624,7 @@ void analysis_settings_changed (LrdViewer *viewer)
         GError *error = NULL;
         a->thread = g_thread_try_new ("limrendir-analysis", analysis_thread, a, &error);
         if (a->thread == NULL) {
-            log_warning ("Could not start the zebra / peaking thread: %s", error->message);
+            log_warning ("Could not start the analysis thread (zebra, peaking, metrics): %s", error->message);
             g_clear_error (&error);
         }
     }
@@ -479,11 +642,20 @@ void analysis_start (LrdViewer *viewer, ArvPixelFormat pixel_format, int width, 
         viewer->peaking = PEAKING_OFF;
     }
 
+    // Metrics: any format of the display, physical aspect of the pixels from the binning
+    MetricsLayout layout;
+    metrics_layout_from_pixel_format (pixel_format, &layout);
+    gint binning_x = 1, binning_y = 1;
+    if (viewer->camera != NULL && arv_camera_is_binning_available (viewer->camera, NULL))
+        arv_camera_get_binning (viewer->camera, &binning_x, &binning_y, NULL);
+
     g_mutex_lock (&a->mutex);
     a->settings.depth = depth;
     a->settings.width = width;
     a->settings.height = height;
     a->settings.generation++;
+    a->settings.metrics_request.layout = layout;
+    a->settings.metrics_request.pixel_aspect = (double) MAX (binning_x, 1) / MAX (binning_y, 1);
     a->running = TRUE;
     g_mutex_unlock (&a->mutex);
 
@@ -507,6 +679,10 @@ void analysis_stop (LrdViewer *viewer)
     g_mutex_lock (&a->mask_mutex);
     a->front_valid = FALSE;
     g_mutex_unlock (&a->mask_mutex);
+    g_mutex_lock (&a->metrics_mutex);
+    a->metrics_front_valid = FALSE;
+    g_mutex_unlock (&a->metrics_mutex);
+    metrics_panel_update (viewer);
 }
 
 gboolean analysis_is_available (LrdViewer *viewer)
@@ -519,17 +695,30 @@ void analysis_offer_frame (LrdViewer *viewer, GstBuffer *buffer, gboolean record
 {
     LrdAnalysis *a = viewer->analysis;
     gint64 const now_us = g_get_monotonic_time ();
-    gint64 const interval_us = G_USEC_PER_SEC / (recording ? ANALYSIS_RECORDING_MAX_RATE : ANALYSIS_PREVIEW_MAX_RATE);
-    if (now_us - a->last_offer_us < interval_us)
+    gint64 const masks_interval_us = G_USEC_PER_SEC / (recording ? ANALYSIS_RECORDING_MAX_RATE
+                                                                 : ANALYSIS_PREVIEW_MAX_RATE);
+    gint64 const metrics_interval_us = MAX (G_USEC_PER_SEC / (recording ? METRICS_RECORDING_MAX_RATE
+                                                                         : METRICS_PREVIEW_MAX_RATE),
+                                            (gint64) g_atomic_int_get (&a->metrics_interval_us));
+    gboolean const masks_due = now_us - a->last_offer_us >= masks_interval_us;
+    gboolean const metrics_due = now_us - a->last_metrics_us >= metrics_interval_us;
+    if (!masks_due && !metrics_due)
         return;
     // Never wait: if the main thread or the worker holds the lock, this frame is not analysed
     if (!g_mutex_trylock (&a->mutex))
         return;
-    if (a->accepting && !a->busy && a->pending == NULL) {
+    gboolean const masks = masks_due && a->masks_accepting;
+    gboolean const metrics = metrics_due && a->metrics_accepting;
+    if ((masks || metrics) && !a->busy && a->pending == NULL) {
         a->pending = gst_buffer_ref (buffer);
         a->pending_job = a->settings;
         a->pending_job.recording = recording;
-        a->last_offer_us = now_us;
+        a->pending_job.masks = masks;
+        a->pending_job.metrics = metrics;
+        if (masks)
+            a->last_offer_us = now_us;
+        if (metrics)
+            a->last_metrics_us = now_us;
         g_cond_signal (&a->cond);
     }
     g_mutex_unlock (&a->mutex);
@@ -550,4 +739,36 @@ const LrdAnalysisMasks *analysis_lock_masks (LrdViewer *viewer)
 void analysis_unlock_masks (LrdViewer *viewer)
 {
     g_mutex_unlock (&viewer->analysis->mask_mutex);
+}
+
+gboolean analysis_metrics_available (LrdViewer *viewer)
+{
+    // (settings.metrics_request is only written by the main thread)
+    return viewer->analysis->settings.metrics_request.layout.samples != METRICS_SAMPLES_NONE;
+}
+
+void analysis_update_metrics_region (LrdViewer *viewer)
+{
+    LrdAnalysis *a = viewer->analysis;
+    if (a == NULL || !viewer->metrics_visible)
+        return;
+    int region[4];
+    metrics_region (viewer, &a->settings, region);
+    if (memcmp (region, a->metrics_region, sizeof (region)) != 0)
+        analysis_settings_changed (viewer);
+}
+
+const LrdMetrics *analysis_lock_metrics (LrdViewer *viewer)
+{
+    LrdAnalysis *a = viewer->analysis;
+    g_mutex_lock (&a->metrics_mutex);
+    // (settings.generation is only written by the main thread)
+    if (!a->metrics_front_valid || a->metrics_front_generation != a->settings.generation)
+        return NULL;
+    return &a->metrics_front;
+}
+
+void analysis_unlock_metrics (LrdViewer *viewer)
+{
+    g_mutex_unlock (&viewer->analysis->metrics_mutex);
 }

@@ -489,6 +489,9 @@ activate (GApplication *application)
 	viewer->zebra_toggle_clicked = g_signal_connect (viewer->zebra_toggle, "clicked", G_CALLBACK (zebra_button_cb), viewer);
 	viewer->peaking_toggle_clicked = g_signal_connect (viewer->peaking_toggle, "clicked",
 	                                                   G_CALLBACK (peaking_button_cb), viewer);
+	viewer->metrics_toggle = GTK_WIDGET (gtk_builder_get_object (builder, "metrics_button"));
+	viewer->metrics_revealer = GTK_WIDGET (gtk_builder_get_object (builder, "metrics_revealer"));
+	metrics_panel_init (viewer);
 	viewer->flip_horizontal_clicked = g_signal_connect (viewer->flip_horizontal_toggle, "clicked",
 	                                                    G_CALLBACK (flip_horizontal_cb), viewer);
 	viewer->flip_vertical_clicked = g_signal_connect (viewer->flip_vertical_toggle, "clicked",
@@ -614,6 +617,7 @@ finalize (GObject *object)
 {
 	LrdViewer *viewer = (LrdViewer *) object;
 	analysis_finalize (viewer);
+	metrics_panel_finalize (viewer);
 	forget_displayed_frame (viewer);
 	g_mutex_clear (&viewer->last_frame_mutex);
 	G_OBJECT_CLASS (arv_viewer_parent_class)->finalize (object);

@@ -4,13 +4,16 @@
 // (include limrendir.h first: it has no include guard)
 #include <gst/gst.h>
 #include <arv.h>
+#include "limrendir_metrics.h"
 
-// ZEBRA STRIPES AND FOCUS PEAKING
+// ZEBRA STRIPES, FOCUS PEAKING AND IMAGE METRICS
 //
 // Some of the frames sent to the display are analysed by a background worker thread, which computes two masks:
 // the saturated pixels (zebra) and the sharp edges (focus peaking). The overlay draws them over the video: the
 // images themselves, the snapshots and the recordings are untouched.
 // Only Mono8 and the 12-bit mono formats (Mono12, Mono12p, Mono12Packed) are supported.
+// The same worker computes the image metrics of the side panel (histogram, alignment, Fourier transform, see
+// limrendir_metrics.h) of the ROI, or of the whole image, for all the mono formats, 8-bit Bayer and RGB / BGR.
 
 // Masks computed from one frame, in image coordinates: mask pixel (i, j) covers the image pixels
 // [i * cell, (i + 1) * cell) x [j * cell, (j + 1) * cell), and is 255 if one of them is on, 0 otherwise.
@@ -36,8 +39,13 @@ void analysis_stop (LrdViewer *viewer);
 // Whether the pixel format of the video can be analysed
 gboolean analysis_is_available (LrdViewer *viewer);
 
-// To be called when viewer->zebra or viewer->peaking changed
+// To be called when viewer->zebra, viewer->peaking or the metrics wanted (viewer->metrics_*) changed
 void analysis_settings_changed (LrdViewer *viewer);
+
+// Whether the pixel format of the video can be measured by the metrics
+gboolean analysis_metrics_available (LrdViewer *viewer);
+// Follows the ROI (region of the metrics): cheap, to be called whenever it may have changed (main thread)
+void analysis_update_metrics_region (LrdViewer *viewer);
 
 // Offers a frame about to be sent to the display, from the stream thread. Cheap and never waits: the frame is
 // taken (a reference) only if the worker is idle and the last frame taken is old enough (the analysis rate is limited,
@@ -49,5 +57,10 @@ void analysis_offer_frame (LrdViewer *viewer, GstBuffer *buffer, gboolean record
 // after (the masks stay valid until then). Main thread.
 const LrdAnalysisMasks *analysis_lock_masks (LrdViewer *viewer);
 void analysis_unlock_masks (LrdViewer *viewer);
+
+// The latest metrics of the current video, or NULL if there are none. analysis_unlock_metrics must always be called
+// after (the metrics stay valid until then). Main thread.
+const LrdMetrics *analysis_lock_metrics (LrdViewer *viewer);
+void analysis_unlock_metrics (LrdViewer *viewer);
 
 #endif //LIMRENDIR_ANALYSIS_H
