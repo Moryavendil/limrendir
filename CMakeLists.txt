@@ -55,6 +55,8 @@ add_executable( limrendir
         limrendir_pixelformat.c
         limrendir_analysis.h
         limrendir_analysis.c
+        limrendir_metrics.h
+        limrendir_metrics.c
 
         main.c limrendir_acquisition_settings.c
 
@@ -62,7 +64,7 @@ add_executable( limrendir
 
 # The zebra / focus peaking kernels run on every pixel of the analysed frames: always optimized, even when the rest
 # of the program is not (no CMAKE_BUILD_TYPE), so that the analysis thread uses as little CPU as possible
-set_source_files_properties(limrendir_analysis.c PROPERTIES COMPILE_OPTIONS "-O3")
+set_source_files_properties(limrendir_analysis.c limrendir_metrics.c PROPERTIES COMPILE_OPTIONS "-O3")
 
 # Compiler warnings (GTK callbacks have fixed signatures, so unused parameters are normal)
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -76,3 +78,14 @@ target_link_libraries(limrendir PUBLIC
         ${GTK_LIBRARIES}
         ${GST_LIBRARIES}
         ${ARAVIS_LIBRARIES})
+
+# Tests of the image metrics on synthetic images (not built by default):
+#     cmake --build build --target metrics_test && ./build/metrics_test
+add_executable(metrics_test EXCLUDE_FROM_ALL
+        tests/metrics_test.c
+        limrendir_metrics.c
+        limrendir_pixelformat.c)
+target_include_directories(metrics_test PRIVATE ${ARAVIS_INCLUDE_DIRS})
+target_link_directories(metrics_test PRIVATE ${ARAVIS_LIBRARY_DIRS})
+target_link_libraries(metrics_test PRIVATE -lm ${ARAVIS_LIBRARIES})
+target_compile_options(metrics_test PRIVATE -O3 -Wall -Wextra -Wno-unused-parameter)
