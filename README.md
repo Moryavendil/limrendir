@@ -12,6 +12,7 @@ It is a mashup between Aravis Viewer, which allows for user-friendly interaction
 * See the livestream of any Genicam camera
 * Record snapshots, or videos in different formats
 * Change the field of view of the camera and the recorded region of interest easily and precisely
+* Exposure and focus aids (zebra stripes, focus peaking), and an image metrics panel (histogram, camera alignment, Fourier transform)
 * More to come!
 
 
@@ -91,6 +92,18 @@ mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
 The current state is shown at the right of the status bar. Both are drawn over the displayed video only: snapshots and recordings are not affected. They work during recordings too (updated less often, to leave the computer to the recording), and never slow down the acquisition: when the computer is busy, they are simply updated less often.
 
 They are available for the Mono8 and Mono12 (Mono12, Mono12p, Mono12Packed) pixel formats only.
+
+### Image metrics: histogram, alignment, Fourier transform
+
+Press `t` (or the bar chart button of the image bar) to show a panel on the right of the video. The window is widened to make room for it, so that the video keeps its size (except when the window is maximized or fullscreen). The metrics are computed on the ROI when it is shown (key `r`), on the whole image otherwise. Each section can be collapsed, and is then not computed:
+
+* **Histogram**: 256 bins from black to full scale, whatever the bit depth (blue: black pixels, red: saturated pixels, yellow line: mean), on a linear or logarithmic scale, with the minimum, maximum, mean, standard deviation, 1st and 99th percentiles, and the fractions of saturated and black pixels, in the units of the camera.
+* **Alignment**: the angle of the nearly vertical lines (walls, light sheets...) and of the nearly horizontal ones (a free surface...), or of both for a grid, as seen on the screen, from -45 to 45 degrees, to about 0.01 degree (the eye cannot do better than about 1 degree). The gauge is green when the lines are within 0.05 degree of the screen axes, orange within 0.5 degree. While the image does not move, the measurement is averaged over the frames (a few seconds), so that the noise of the camera does not make it fluctuate; as soon as the camera is turned, the average starts again. The angles are found from the whole region: straight lines that cross most of it give the best precision.
+* **Fourier transform**: log power spectrum of the region, binned to 2^n x 2^m with at most 256 x 256 bins (Hann window, zero frequency at the center), turned like the video.
+
+The vertical scale of the histogram only changes when the highest bar becomes twice higher or lower, at most once per second, so that it does not jump with the noise.
+
+The metrics are computed a few times per second (once per second during recordings) by the same low priority thread as the zebra stripes, without slowing down the acquisition. They are available for all the mono formats, the 8-bit Bayer formats (raw values, colors mixed) and RGB8 / BGR8 (luma).
 
 Press `h` in the video to print all the key bindings (they are also listed in the keyboard help button).
 
