@@ -752,6 +752,13 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
 
     LrdViewer *viewer = data;
 
+    // While typing in an entry or a spin button, the keys are text, not shortcuts
+    GtkWidget *focus = gtk_window_get_focus (GTK_WINDOW (viewer->main_window));
+    if (focus != NULL && GTK_IS_EDITABLE (focus))
+        return FALSE;
+
+    gboolean handled = TRUE;
+
     switch (event->keyval) {
 
         case GDK_KEY_g:
@@ -788,10 +795,12 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
             break;
 
         default:
+            handled = FALSE;
             break;
     }
 
-    if (!is_record_button_active(viewer)) {
+    if (!handled && !is_record_button_active(viewer)) {
+        handled = TRUE;
         switch (event->keyval) {
             case GDK_KEY_n:
 //                best_exposure_search_blocking(viewer);
@@ -917,14 +926,16 @@ gint key_press_cb(GtkWidget* widget, GdkEventKey* event, gpointer data)
                 break;
 
             default:
+                handled = FALSE;
                 break;
         }
     }
 
     update_fov_buttons(viewer);
 
-    // Let the key also reach the focused widget (e.g. to type in an entry)
-    return FALSE;
+    // A key used as a shortcut must not also reach the focused widget (e.g. Space would press the last clicked button
+    // again); other keys (Tab, Return, ...) keep their usual effect on it
+    return handled;
 }
 
 // Key listener toggle

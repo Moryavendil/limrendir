@@ -498,7 +498,7 @@ gboolean frame_rate_scale_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *vi
 
 double impose_frame_rate (LrdViewer *viewer, double new_frame_rate);
 
-void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus);
+void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer);
 
 void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer);
 

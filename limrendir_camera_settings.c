@@ -453,7 +453,7 @@ double impose_frame_rate (LrdViewer *viewer, double new_frame_rate) {
     return actual_frame_rate;
 }
 
-void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus) {
+void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer) {
     const char *text = gtk_entry_get_text (entry);
 
     // The entry shows the actual frame rate. If it was not edited, there is nothing to do
@@ -464,19 +464,16 @@ void apply_frame_rate (GtkEntry *entry, LrdViewer *viewer, gboolean grab_focus) 
 
     if (!unchanged)
         impose_frame_rate (viewer, g_strtod (text, NULL));
-
-    if (grab_focus)
-        gtk_widget_grab_focus (GTK_WIDGET (entry));
 }
 
 void frame_rate_entry_cb (GtkEntry *entry, LrdViewer *viewer)
 {
-    apply_frame_rate(entry, viewer, TRUE);
+    apply_frame_rate(entry, viewer);
 }
 
 gboolean frame_rate_entry_focus_cb (GtkEntry *entry, GdkEventFocus *event, LrdViewer *viewer)
 {
-    apply_frame_rate(entry, viewer, FALSE);
+    apply_frame_rate(entry, viewer);
 
     return FALSE;
 }
@@ -576,7 +573,6 @@ void exposure_spin_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
 
     g_signal_handler_block (viewer->exposure_hscale, viewer->exposure_hscale_changed);
     gtk_range_set_value (GTK_RANGE (viewer->exposure_hscale), log_exposure);
-    gtk_widget_grab_focus (GTK_WIDGET (spin_button));
     g_signal_handler_unblock (viewer->exposure_hscale, viewer->exposure_hscale_changed);
 }
 
@@ -651,7 +647,6 @@ void gain_spin_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
 
     g_signal_handler_block (viewer->gain_hscale, viewer->gain_hscale_changed);
     gtk_range_set_value (GTK_RANGE (viewer->gain_hscale), gtk_spin_button_get_value (spin_button));
-    gtk_widget_grab_focus (GTK_WIDGET (spin_button));
     g_signal_handler_unblock (viewer->gain_hscale, viewer->gain_hscale_changed);
 }
 
@@ -717,7 +712,6 @@ void black_level_spin_cb (GtkSpinButton *spin_button, LrdViewer *viewer)
 
     g_signal_handler_block (viewer->black_level_hscale, viewer->black_level_hscale_changed);
     gtk_range_set_value (GTK_RANGE (viewer->black_level_hscale), gtk_spin_button_get_value (spin_button));
-    gtk_widget_grab_focus (GTK_WIDGET (spin_button));
     g_signal_handler_unblock (viewer->black_level_hscale, viewer->black_level_hscale_changed);
 }
 

@@ -339,6 +339,75 @@ viewer_shutdown (GApplication *application)
     arv_shutdown ();
 }
 
+// KEYBOARD FOCUS
+// The keys are shortcuts unless an entry or a spin button has the focus (see key_press_cb). The focus is given back to
+// the window when the user is done with it: Return, Escape or a click anywhere else. Inside a popover, Escape and a
+// click outside of it are handled by GTK, which closes the popover and gives the focus back.
+
+static void
+drop_entry_focus (GtkWidget *widget)
+{
+    GtkWidget *toplevel = gtk_widget_get_toplevel (widget);
+    if (!GTK_IS_WINDOW (toplevel))
+        return;
+
+    GtkWidget *focus = gtk_window_get_focus (GTK_WINDOW (toplevel));
+    if (focus != NULL && GTK_IS_EDITABLE (focus))
+        gtk_window_set_focus (GTK_WINDOW (toplevel), NULL);
+}
+
+// Connected after the entry's own "activate" handlers, so that the value is applied first
+static void
+entry_activate_drop_focus_cb (GtkEntry *entry, gpointer data)
+{
+    drop_entry_focus (GTK_WIDGET (entry));
+}
+
+static gboolean
+entry_key_press_drop_focus_cb (GtkWidget *entry, GdkEventKey *event, gpointer data)
+{
+    if (event->keyval != GDK_KEY_Escape)
+        return FALSE;
+    drop_entry_focus (entry);
+    return TRUE;
+}
+
+// Sees every click in the window before the clicked widget does (capture phase), without consuming it
+static void
+click_away_drop_focus_cb (GtkGestureMultiPress *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
+{
+    GtkGestureSingle *single = GTK_GESTURE_SINGLE (gesture);
+    const GdkEvent *event = gtk_gesture_get_last_event (GTK_GESTURE (gesture),
+                                                        gtk_gesture_single_get_current_sequence (single));
+    GtkWidget *clicked = event != NULL ? gtk_get_event_widget ((GdkEvent *) event) : NULL;
+
+    if (clicked == NULL || gtk_widget_get_ancestor (clicked, GTK_TYPE_ENTRY) == NULL)
+        drop_entry_focus (gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture)));
+
+    gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_DENIED);
+}
+
+static void
+setup_entry_focus_release (GtkWidget *window, GtkBuilder *builder)
+{
+    GSList *builder_objects = gtk_builder_get_objects (builder);
+    for (GSList *object = builder_objects; object != NULL; object = object->next) {
+        // Spin buttons are entries too
+        if (GTK_IS_ENTRY (object->data)) {
+            g_signal_connect_after (object->data, "activate", G_CALLBACK (entry_activate_drop_focus_cb), NULL);
+            g_signal_connect (object->data, "key-press-event", G_CALLBACK (entry_key_press_drop_focus_cb), NULL);
+        }
+    }
+    g_slist_free (builder_objects);
+
+    GtkGesture *click_away = gtk_gesture_multi_press_new (window);
+    gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (click_away), 0);
+    gtk_event_controller_set_propagation_phase (GTK_EVENT_CONTROLLER (click_away), GTK_PHASE_CAPTURE);
+    g_signal_connect (click_away, "pressed", G_CALLBACK (click_away_drop_focus_cb), NULL);
+    // In GTK 3, the widget does not own its gestures
+    g_object_set_data_full (G_OBJECT (window), "lrd-click-away-gesture", click_away, g_object_unref);
+}
+
 // CREATING
 static void
 activate (GApplication *application)
@@ -450,6 +519,16 @@ activate (GApplication *application)
 
     g_signal_connect (viewer->notification_dismiss, "clicked",
                       G_CALLBACK (notification_dismiss_clicked_cb), viewer);
+
+    // Clicking a button (toggle, radio, check and menu buttons included) does not give it the keyboard focus, so that
+    // the keys go on acting as shortcuts rather than on the last clicked button
+    GSList *builder_objects = gtk_builder_get_objects (builder);
+    for (GSList *object = builder_objects; object != NULL; object = object->next)
+        if (GTK_IS_BUTTON (object->data))
+            gtk_widget_set_focus_on_click (GTK_WIDGET (object->data), FALSE);
+    g_slist_free (builder_objects);
+
+    setup_entry_focus_release (viewer->main_window, builder);
 
     list_store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_BOOLEAN);
     gtk_combo_box_set_model (GTK_COMBO_BOX (viewer->pixel_format_combo), GTK_TREE_MODEL (list_store));

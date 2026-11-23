@@ -105,7 +105,7 @@ The vertical scale of the histogram only changes when the highest bar becomes tw
 
 The metrics are computed a few times per second (once per second during recordings) by the same low priority thread as the zebra stripes, without slowing down the acquisition. They are available for all the mono formats, the 8-bit Bayer formats (raw values, colors mixed) and RGB8 / BGR8 (luma).
 
-Press `h` in the video to print all the key bindings (they are also listed in the keyboard help button).
+Press `h` in the video to print all the key bindings (they are also listed in the keyboard help button). The keys are not shortcuts while a value is typed in a field (exposure, frame rate...): press Return or Escape, or click anywhere else, to leave the field.
 
 ### Trying limrendir without a camera
 
