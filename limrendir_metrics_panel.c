@@ -536,8 +536,8 @@ void metrics_panel_init (LrdViewer *viewer)
     viewer->metrics_panel = panel;
     viewer->metrics_visible = FALSE;
     viewer->metrics_histogram = TRUE;
-    viewer->metrics_alignment = TRUE;
-    viewer->metrics_fft = FALSE;    // the costliest, and the least used
+    viewer->metrics_alignment = FALSE;    // expanded when needed
+    viewer->metrics_fft = FALSE;          // the costliest, and the least used
     viewer->metrics_window_growth = 0;
 
     GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
