@@ -88,7 +88,7 @@ typedef enum {
 // FOCUS PEAKING SENSITIVITY (p cycles through them, in this order)
 typedef enum {
     PEAKING_OFF,
-    PEAKING_LOW,      // only the strongest edges
+    PEAKING_LOW,      // only the strongest edges: contrasted edges, shown only very close to the best focus
     PEAKING_MEDIUM,
     PEAKING_HIGH      // also weaker edges
 } PeakingLevel;

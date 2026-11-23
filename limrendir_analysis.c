@@ -63,11 +63,22 @@
 #define ANALYSIS_ZEBRA_THRESHOLD_8BIT 253
 #define ANALYSIS_ZEBRA_THRESHOLD_12BIT 4063    // = 253 / 255 x 4095
 
-// Focus peaking: pixels where the 3x3 Sobel gradient |gx| + |gy| (native units) is at least this fraction of the
-// full scale (255 or 4095). The threshold is fixed, not relative to the frame: a sharp step of amplitude A gives
-// |gx| + |gy| = 4 A, so LOW shows the steps of at least 15 % of the full scale, MEDIUM 7.5 %, HIGH 3.75 %.
-#define ANALYSIS_PEAKING_THRESHOLD_LOW 0.60
-#define ANALYSIS_PEAKING_THRESHOLD_MEDIUM 0.30
+// Focus peaking: pixels where the magnitude of the 3x3 Sobel gradient, sqrt (gx^2 + gy^2) in native units, is at
+// least this fraction of the full scale (255 or 4095). The threshold is fixed, not relative to the frame, so that
+// nothing shows while the image is blurred. A sharp step of amplitude A gives a magnitude of about 4 A, whatever its
+// direction; blurred by a Gaussian of sigma pixels (sigma grows with the defocus), about 1.9 A at 1.5 px, 1.5 A at
+// 2 px, 1 A at 3 px and 0.8 A at 4 px. An edge of contrast C (fraction of the full scale) shows while sigma is below
+// (never: not even when perfectly sharp; > 8: still at 8 px):
+//              C = 100 %   80 %    60 %    40 %    30 %    20 %    10 %
+//     LOW        2.0 px   1.5     1.0     never   never   never   never
+//     MEDIUM     6.4      5.1     3.8     2.5     1.8     1.0     never
+//     HIGH       > 8      > 8     > 8     > 8     6.4     4.2     2.0
+// Each level is 3 times more sensitive than the previous one, so that the edges of the contrast it is meant for show
+// only close to the best focus (sigma below ~1.5 to 2 px, edges at most ~4 to 5 px wide from 10 to 90 %): LOW for
+// the contrasted edges (black / white, 80 %), MEDIUM for ordinary ones (~25 %), HIGH for faint ones (~10 %). A level
+// meant for weaker edges shows the contrasted ones over a much larger range of focus.
+#define ANALYSIS_PEAKING_THRESHOLD_LOW 1.50
+#define ANALYSIS_PEAKING_THRESHOLD_MEDIUM 0.50
 #define ANALYSIS_PEAKING_THRESHOLD_HIGH 0.15
 
 // Nice value of the worker thread: the acquisition, the recording and the display go first
@@ -165,13 +176,16 @@ static void zebra_row_##SUFFIX (const guint8 *row_bytes, int width, int threshol
         hits[x] = LOAD (row, x) >= threshold ? 0xff : 0;                                                             \
 }                                                                                                                    \
                                                                                                                      \
-/* 3x3 Sobel, |gx| + |gy|. The first and last pixels of the row (no neighbour) are never edges. */                  \
+/* 3x3 Sobel, gx^2 + gy^2 >= threshold^2: the magnitude, the same for all edge directions (|gx| + |gy| would favour  \
+   the diagonal ones by up to 40 %). At most 2 x (4 x 4095)^2 < 2^31. The first and last pixels of the row (no       \
+   neighbour) are never edges. */                                                                                    \
 static void peaking_row_##SUFFIX (const guint8 *above_bytes, const guint8 *row_bytes, const guint8 *below_bytes,     \
                                   int width, int threshold, guint8 *hits)                                            \
 {                                                                                                                    \
     const TYPE *r0 = (const TYPE *) above_bytes;                                                                     \
     const TYPE *r1 = (const TYPE *) row_bytes;                                                                       \
     const TYPE *r2 = (const TYPE *) below_bytes;                                                                     \
+    int const threshold_squared = threshold * threshold;                                                             \
     hits[0] = 0;                                                                                                     \
     hits[width - 1] = 0;                                                                                             \
     for (int x = 1; x < width - 1; x++) {                                                                            \
@@ -179,7 +193,7 @@ static void peaking_row_##SUFFIX (const guint8 *above_bytes, const guint8 *row_b
                      - (LOAD (r0, x - 1) + 2 * LOAD (r1, x - 1) + LOAD (r2, x - 1));                                 \
         int const gy = (LOAD (r2, x - 1) + 2 * LOAD (r2, x) + LOAD (r2, x + 1))                                      \
                      - (LOAD (r0, x - 1) + 2 * LOAD (r0, x) + LOAD (r0, x + 1));                                     \
-        hits[x] = abs (gx) + abs (gy) >= threshold ? 0xff : 0;                                                       \
+        hits[x] = gx * gx + gy * gy >= threshold_squared ? 0xff : 0;                                                 \
     }                                                                                                                \
 }
 

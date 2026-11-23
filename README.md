@@ -87,7 +87,7 @@ mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
 ### Exposure and focus aids: zebra stripes and focus peaking
 
 * **Zebra stripes** (key `w`, or the striped button of the image bar): moving red diagonal stripes over the saturated pixels (8-bit value of at least 253, 12-bit value of at least 4063).
-* **Focus peaking** (key `p`, or the button next to it): the sharp edges are shown in yellow, which helps to focus. Each press cycles through off / low / medium / high sensitivity (low shows only the strongest edges).
+* **Focus peaking** (key `p`, or the button next to it): the sharp edges are shown in yellow, which helps to focus. Each press cycles through off / low / medium / high sensitivity. Each level is meant for a contrast of the edges, and shows them only close to the best focus: low for contrasted edges (black / white, the most precise focusing), medium for ordinary ones, high for faint ones. A level meant for fainter edges shows the contrasted ones over a larger range of focus: when the edges show too early, lower the sensitivity.
 
 The current state is shown at the right of the status bar. Both are drawn over the displayed video only: snapshots and recordings are not affected. They work during recordings too (updated less often, to leave the computer to the recording), and never slow down the acquisition: when the computer is busy, they are simply updated less often.
 
