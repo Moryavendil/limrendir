@@ -82,7 +82,9 @@ Choose the format in the recording settings, then press the record button or the
 * **mkv** (lossless): compressed without loss (FFV1) of the image as displayed (8 bits per color), larger files.
 * **gcv** (lossless): the frames exactly as the camera sends them, with the camera timestamp of each frame: the most precise for timing, very large files.
 
-mp4 and mkv videos are played at 30 fps, whatever the recording frame rate.
+mp4 and mkv videos are played at 30 fps, whatever the recording frame rate. They are rotated and flipped like the displayed video (as are the snapshots), which is written in their metadata (`imageTransform`, the regions being given in camera image coordinates); gcv files hold the frames as the camera sends them, never rotated nor flipped.
+
+The rotation and flips are kept while the same camera is used (crop, zoom, recordings, back to the camera list and to the video), and reset when another camera is chosen.
 
 ### Exposure and focus aids: zebra stripes and focus peaking
 

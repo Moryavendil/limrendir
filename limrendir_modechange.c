@@ -205,7 +205,8 @@ void toggle_invert (LrdViewer *viewer)
 }
 
 // Back to no rotation and no flip, with the flip buttons released (from aravis c4a70719e).
-// Called when a new pipeline is created, since its videoflip element starts untransformed.
+// Called when another camera is opened. The rotation and flips of a camera are kept while it is used: every new
+// pipeline applies them to its videoflip element (see create_display_pipeline).
 void reset_image_transform (LrdViewer *viewer)
 {
     viewer->rotation = 0;
@@ -635,8 +636,10 @@ void camera_selection_changed_cb (GtkTreeSelection *selection, LrdViewer *viewer
 
 gboolean start_camera (LrdViewer *viewer, const char *camera_id)
 {
-    // Another camera: its frame rate is not to be compared with the previous one (see warn_if_fov_changed_frame_rate)
+    // Another camera: its frame rate is not to be compared with the previous one (see warn_if_fov_changed_frame_rate),
+    // and it starts unrotated and unflipped
     viewer->frame_rate_before_fov_change = -1.;
+    reset_image_transform (viewer);
 
     GtkTreeIter iter;
     GtkListStore *list_store;

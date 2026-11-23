@@ -419,8 +419,8 @@ void create_display_pipeline (LrdViewer *viewer, const char *caps_string)
     viewer->appsrc = gst_element_factory_make ("appsrc", NULL);
     GstElement *videoconvert = gst_element_factory_make ("videoconvert", NULL);
     viewer->transform = gst_element_factory_make ("videoflip", NULL);
-    // Its videoflip starts untransformed: so must be the viewer state (used by the overlay)
-    reset_image_transform (viewer);
+    // The rotation and flips are kept when the pipeline is recreated (crop, zoom, recording start and end...)
+    g_object_set (viewer->transform, "method", get_videoflip_method (viewer), NULL);
 
     log_trace("    Adding elements to the gstreamer pipeline.");
     gst_bin_add_many (GST_BIN (viewer->pipeline), viewer->appsrc, videoconvert, viewer->transform, NULL);
@@ -569,7 +569,6 @@ gboolean start_video (LrdViewer *viewer)
 
     stop_video (viewer);
 
-    reset_image_transform (viewer);
     viewer->stream = create_camera_stream (viewer, stream_video_cb);
     if (viewer->stream == NULL)
         return FALSE;

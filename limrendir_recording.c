@@ -808,6 +808,15 @@ static char *recording_metadata_text (LrdViewer *viewer, gboolean final) {
     g_string_append_printf (text, "usingROI=%s\n", recorded_region.using_roi ? "true" : "false");
     g_string_append_printf (text, "viewerRegionX=%d\nviewerRegionY=%d\nviewerRegionWidth=%d\nviewerRegionHeight=%d\n",
                             recorded_region.x, recorded_region.y, recorded_region.width, recorded_region.height);
+    // The regions are in the coordinates of the camera images; the video frames are then rotated / flipped like the
+    // display (names of the GStreamer videoflip methods)
+    static const char *const videoflip_method_names[] = {"none", "clockwise", "rotate-180", "counterclockwise",
+                                                         "horizontal-flip", "vertical-flip", "upper-left-diagonal",
+                                                         "upper-right-diagonal"};
+    gint const method = get_videoflip_method (viewer);
+    g_string_append_printf (text, "imageTransform=%s\n",
+                            method >= 0 && method < (gint) G_N_ELEMENTS (videoflip_method_names) ?
+                            videoflip_method_names[method] : "unknown");
     g_string_append_printf (text, "captureFrequency=%f\n", gst_capture_frame_rate);
     g_string_append_printf (text, "playbackFrequency=%d\n", mp4_playback_fps);
     g_string_append_printf (text, "slowdownFactor=%f\n", gst_capture_frame_rate / mp4_playback_fps);
@@ -903,8 +912,8 @@ static GstPadLinkReturn link_pad_to_element (GstPad *src_pad, GstElement *elemen
 }
 
 // Links the tee to the first element of the recording branch, through a videocrop element if only a part of the
-// images is recorded (recorded_region). The frames are not rotated / flipped during recordings, so the region is in
-// image coordinates.
+// images is recorded (recorded_region). The tee comes after the videoflip (the videos are rotated / flipped like the
+// display, which cannot change during a recording): the region, in image coordinates, is turned the same way.
 static gboolean link_tee_to_recording_branch (LrdViewer *viewer, GstPad *tee_src_pad, GstElement *first) {
     const RecordedRegion *r = &recorded_region;
     if (!r->cropped)
@@ -915,9 +924,21 @@ static gboolean link_tee_to_recording_branch (LrdViewer *viewer, GstPad *tee_src
         log_error("The GStreamer element videocrop (gst-plugins-good) is missing: cannot record the ROI only.");
         return FALSE;
     }
-    g_object_set (G_OBJECT (videocrop),
-                  "left", r->x, "top", r->y,
-                  "right", r->fov_width - r->x - r->width, "bottom", r->fov_height - r->y - r->height, NULL);
+    // The opposite corners of the region and of the frame, turned: their distances are the margins to crop
+    cairo_matrix_t flip;
+    overlay_videoflip_matrix (get_videoflip_method (viewer), r->fov_width, r->fov_height, &flip);
+    double rx0 = r->x, ry0 = r->y, rx1 = r->x + r->width, ry1 = r->y + r->height;
+    double fx0 = 0, fy0 = 0, fx1 = r->fov_width, fy1 = r->fov_height;
+    cairo_matrix_transform_point (&flip, &rx0, &ry0);
+    cairo_matrix_transform_point (&flip, &rx1, &ry1);
+    cairo_matrix_transform_point (&flip, &fx0, &fy0);
+    cairo_matrix_transform_point (&flip, &fx1, &fy1);
+    int const left = (int) (MIN (rx0, rx1) - MIN (fx0, fx1) + 0.5);
+    int const top = (int) (MIN (ry0, ry1) - MIN (fy0, fy1) + 0.5);
+    int const right = (int) (MAX (fx0, fx1) - MAX (rx0, rx1) + 0.5);
+    int const bottom = (int) (MAX (fy0, fy1) - MAX (ry0, ry1) + 0.5);
+    log_debug("Recorded region in the turned frames: left %d, top %d, right %d, bottom %d", left, top, right, bottom);
+    g_object_set (G_OBJECT (videocrop), "left", left, "top", top, "right", right, "bottom", bottom, NULL);
     gst_bin_add (GST_BIN (viewer->pipeline), videocrop);
     return !GST_PAD_LINK_FAILED (link_pad_to_element (tee_src_pad, videocrop)) && gst_element_link (videocrop, first);
 }
