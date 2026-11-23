@@ -16,6 +16,8 @@
 // Look of the overlay (line widths are in screen pixels, whatever the zoom)
 #define OVERLAY_GRID_SPACING 100        // image pixels between two grid lines, from the center
 #define OVERLAY_GRID_LINE_WIDTH 2.0
+#define OVERLAY_GRID_COLOR 0.0, 1.0, 0.0 // bright green (r, g, b)
+#define OVERLAY_GRID_ALPHA 0.6          // the image shows through the grid / crosshair lines
 #define OVERLAY_ROI_LINE_WIDTH 3.0
 #define OVERLAY_SHADE_ALPHA (2.0 / 3.0) // the region outside the ROI is shown at 1/3 of its brightness
 #define OVERLAY_ROI_DRAG_THRESHOLD 3.0  // a press and release closer than this (screen pixels) is a click, not a drag
@@ -28,6 +30,7 @@
 #define OVERLAY_ZEBRA_SPEED 30.0              // screen pixels per second
 #define OVERLAY_ZEBRA_ANIMATION_RATE 25       // redraws per second moving the stripes (even if the camera is slower)
 #define OVERLAY_PEAKING_COLOR 1.0, 1.0, 0.0   // yellow (r, g, b)
+#define OVERLAY_PEAKING_ALPHA 0.6             // the edges show through the peaking, to judge their sharpness
 
 // Matrix mapping image coordinates to the rotated / flipped image, for each videoflip method
 void overlay_videoflip_matrix (gint method, double width, double height, cairo_matrix_t *matrix)
@@ -209,7 +212,7 @@ static void overlay_draw_analysis (LrdViewer *viewer, GtkWidget *widget, cairo_t
         cairo_pattern_destroy (stripes);
     }
     if (masks != NULL && viewer->peaking != PEAKING_OFF && masks->peaking != NULL) {
-        cairo_set_source_rgb (cr, OVERLAY_PEAKING_COLOR);
+        cairo_set_source_rgba (cr, OVERLAY_PEAKING_COLOR, OVERLAY_PEAKING_ALPHA);
         overlay_paint_mask (cr, matrix, masks, masks->peaking);
     }
     analysis_unlock_masks (viewer);
@@ -261,7 +264,8 @@ static gboolean overlay_draw_cb (GtkWidget *widget, cairo_t *cr, LrdViewer *view
         overlay_grid_path (cr, viewer->grid_type, width, height);
         cairo_restore (cr);
         cairo_set_line_width (cr, OVERLAY_GRID_LINE_WIDTH);
-        cairo_set_source_rgb (cr, 1, 1, 1);
+        // One stroke for all the lines: their crossings are not darker than the lines
+        cairo_set_source_rgba (cr, OVERLAY_GRID_COLOR, OVERLAY_GRID_ALPHA);
         cairo_stroke (cr);
     }
 
