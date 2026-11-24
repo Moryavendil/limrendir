@@ -5,7 +5,7 @@
 # any terminal by typing limrendir.
 # The dependencies (GTK, GStreamer, Aravis...) must be installed first: see README.md.
 #
-# Usage: ./install-launcher.sh [--desktop] [--no-terminal] [--no-build] [--setcap] [path/to/limrendir]
+# Usage: ./install.sh [--desktop] [--no-terminal] [--no-build] [--setcap] [path/to/limrendir]
 #   --desktop       also put a launcher on the desktop
 #   --no-terminal   do not open a terminal next to limrendir (by default one shows the log: warnings, errors)
 #   --no-build      do not compile: use the binary already compiled (build/limrendir, or limrendir, next to this
@@ -17,7 +17,7 @@
 # To update limrendir: git pull, then run the script again, with the same options.
 # Application icon: data/icons/limrendir.svg (preferred) or data/icons/limrendir.png (256x256), if present.
 # Run the script again after adding or changing it, or after moving the limrendir folder.
-# To remove everything: ./uninstall-launcher.sh
+# To remove everything: ./uninstall.sh
 
 set -e
 

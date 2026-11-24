@@ -1,5 +1,5 @@
 #!/bin/sh
-# Removes what install-launcher.sh installed: the applications launcher, the desktop launcher, the icon and the
+# Removes what install.sh installed: the applications launcher, the desktop launcher, the icon and the
 # command ~/.local/bin/limrendir.
 # limrendir itself (the compiled binary, in the build folder) is left untouched: delete the build folder to remove it.
 
@@ -16,7 +16,7 @@ for file in "$data_dir/applications/limrendir.desktop" \
     fi
 done
 
-# The command is removed only if it is a link (the one made by install-launcher.sh), not a file put there otherwise
+# The command is removed only if it is a link (the one made by install.sh), not a file put there otherwise
 link=$HOME/.local/bin/limrendir
 if [ -L "$link" ]; then
     rm -f "$link"
