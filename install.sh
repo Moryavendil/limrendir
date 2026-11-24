@@ -1,12 +1,12 @@
 #!/bin/sh
 # Compiles limrendir in the build folder next to this script, then installs a launcher for it, for the current user
-# only (no sudo needed): limrendir then appears in the applications (it can be pinned to the dock from there) and,
-# with --desktop, as an icon on the desktop. It also links ~/.local/bin/limrendir to the binary, to run limrendir from
-# any terminal by typing limrendir.
+# only (no sudo needed): limrendir then appears in the applications (it can be pinned to the dock from there) and as
+# an icon on the desktop. It also links ~/.local/bin/limrendir to the binary, to run limrendir from any terminal by
+# typing limrendir.
 # The dependencies (GTK, GStreamer, Aravis...) must be installed first: see README.md.
 #
-# Usage: ./install.sh [--desktop] [--no-terminal] [--no-build] [--setcap] [path/to/limrendir]
-#   --desktop       also put a launcher on the desktop
+# Usage: ./install.sh [--no-desktop] [--no-terminal] [--no-build] [--setcap] [path/to/limrendir]
+#   --no-desktop    no launcher on the desktop (removes the one put there by an earlier installation)
 #   --no-terminal   do not open a terminal next to limrendir (by default one shows the log: warnings, errors)
 #   --no-build      do not compile: use the binary already compiled (build/limrendir, or limrendir, next to this
 #                   script)
@@ -22,7 +22,7 @@
 set -e
 
 repo_dir=$(cd "$(dirname "$0")" && pwd)
-desktop=false
+desktop=true
 terminal=true
 build=true
 setcap=false
@@ -30,7 +30,8 @@ binary=
 
 for arg in "$@"; do
     case "$arg" in
-        --desktop) desktop=true ;;
+        --desktop) desktop=true ;;  # the default; still accepted, for the commands written before --no-desktop
+        --no-desktop) desktop=false ;;
         --no-terminal) terminal=false ;;
         --no-build) build=false ;;
         --setcap) setcap=true ;;
@@ -162,13 +163,24 @@ else
     esac
 fi
 
-if [ "$desktop" = true ]; then
-    desktop_dir=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
+# Desktop launcher: a copy of the applications one
+desktop_dir=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
+desktop_dir=${desktop_dir%/}
+desktop_entry=$desktop_dir/limrendir.desktop
+if [ "$desktop" = false ]; then
+    if [ -e "$desktop_entry" ]; then
+        rm -f "$desktop_entry"
+        echo "Desktop launcher removed: $desktop_entry"
+    fi
+elif [ "$desktop_dir" = "${HOME%/}" ]; then
+    # The desktop folder is the home folder when the desktop is disabled (XDG_DESKTOP_DIR="$HOME/")
+    echo "No desktop folder: no desktop launcher"
+else
     mkdir -p "$desktop_dir"
-    cp "$entry" "$desktop_dir/limrendir.desktop"
-    chmod +x "$desktop_dir/limrendir.desktop"
+    cp "$entry" "$desktop_entry"
+    chmod +x "$desktop_entry"
     # Ubuntu only launches desktop icons marked as trusted ("Allow Launching" in their menu)
-    gio set "$desktop_dir/limrendir.desktop" metadata::trusted true 2>/dev/null || true
-    echo "Desktop launcher: $desktop_dir/limrendir.desktop"
+    gio set "$desktop_entry" metadata::trusted true 2>/dev/null || true
+    echo "Desktop launcher: $desktop_entry"
     echo "  (if it does not start on double click: right click on it, then Allow Launching)"
 fi
