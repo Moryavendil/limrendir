@@ -1,7 +1,7 @@
 #!/bin/sh
 # Removes what install-launcher.sh installed: the applications launcher, the desktop launcher, the icon and the
 # command ~/.local/bin/limrendir.
-# limrendir itself (the compiled binary) is left untouched.
+# limrendir itself (the compiled binary, in the build folder) is left untouched: delete the build folder to remove it.
 
 data_dir=${XDG_DATA_HOME:-$HOME/.local/share}
 desktop_dir=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
