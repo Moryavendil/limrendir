@@ -12,6 +12,12 @@ was created.
 in `#if ARAVIS_CHECK_VERSION (...)` with a 0.8 fallback (see the compatibility macros at the
 top of `limrendir.h`).
 
+**Private aravis headers:** `src/aravis/arvdebugprivate.h` and `src/aravis/arvgvstreamprivate.h` are
+unmodified copies from aravis 0.8.17 to 0.8.22 (aravis does not install its private headers). Limrendir
+uses them for `arv_debug_print_infos` and the `ARV_GV_STREAM_*_DEFAULT` stream timeouts, which are
+unchanged upstream. Their `arv_gv_stream_new` declaration is out of date (aravis `c9965a4cc` added a
+`GDestroyNotify` argument), but limrendir does not call it.
+
 ## Upstream commits since the base
 
 | Aravis commit | Date | Summary | Status | Notes | Limrendir commit |

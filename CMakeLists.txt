@@ -22,7 +22,8 @@ pkg_check_modules(GST REQUIRED gstreamer-1.0
 # Aravis encodes its API version in the pkg-config name; accept any supported one (newest first)
 pkg_search_module(ARAVIS REQUIRED aravis-0.10 aravis-0.8)
 
-include_directories(.)
+# limrendir sources, and the private aravis headers they use (copied from aravis, see UPSTREAM.md)
+include_directories(src src/aravis)
 
 # The interface description (limrendir.ui) is embedded in the executable, so that limrendir can be run from any folder
 pkg_get_variable(GLIB_COMPILE_RESOURCES gio-2.0 glib_compile_resources)
@@ -37,35 +38,35 @@ add_custom_command(
         COMMENT "Embedding limrendir.ui")
 
 add_executable( limrendir
-        logroutines.h
-        logroutines.c
+        src/logroutines.h
+        src/logroutines.c
 
-        limrendir.h
-        limrendir.c
-        limrendir_recording.c
-        limrendir_camera_settings.c
-        limrendir_keyboardcommands.c
-        limrendir_streaming.c
-        limrendir_fovsettings.c
-        limrendir_modechange.c
-        limrendir_settings.h
-        limrendir_settings.c
-        limrendir_overlay.c
-        limrendir_pixelformat.h
-        limrendir_pixelformat.c
-        limrendir_analysis.h
-        limrendir_analysis.c
-        limrendir_metrics.h
-        limrendir_metrics.c
-        limrendir_metrics_panel.c
+        src/limrendir.h
+        src/limrendir.c
+        src/limrendir_recording.c
+        src/limrendir_camera_settings.c
+        src/limrendir_keyboardcommands.c
+        src/limrendir_streaming.c
+        src/limrendir_fovsettings.c
+        src/limrendir_modechange.c
+        src/limrendir_settings.h
+        src/limrendir_settings.c
+        src/limrendir_overlay.c
+        src/limrendir_pixelformat.h
+        src/limrendir_pixelformat.c
+        src/limrendir_analysis.h
+        src/limrendir_analysis.c
+        src/limrendir_metrics.h
+        src/limrendir_metrics.c
+        src/limrendir_metrics_panel.c
 
-        main.c limrendir_acquisition_settings.c
+        src/main.c src/limrendir_acquisition_settings.c
 
         ${LIMRENDIR_RESOURCES_C})
 
 # The zebra / focus peaking kernels run on every pixel of the analysed frames: always optimized, even when the rest
 # of the program is not (no CMAKE_BUILD_TYPE), so that the analysis thread uses as little CPU as possible
-set_source_files_properties(limrendir_analysis.c limrendir_metrics.c PROPERTIES COMPILE_OPTIONS "-O3")
+set_source_files_properties(src/limrendir_analysis.c src/limrendir_metrics.c PROPERTIES COMPILE_OPTIONS "-O3")
 
 # Compiler warnings (GTK callbacks have fixed signatures, so unused parameters are normal)
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -84,8 +85,8 @@ target_link_libraries(limrendir PUBLIC
 #     cmake --build build --target metrics_test && ./build/metrics_test
 add_executable(metrics_test EXCLUDE_FROM_ALL
         tests/metrics_test.c
-        limrendir_metrics.c
-        limrendir_pixelformat.c)
+        src/limrendir_metrics.c
+        src/limrendir_pixelformat.c)
 target_include_directories(metrics_test PRIVATE ${ARAVIS_INCLUDE_DIRS})
 target_link_directories(metrics_test PRIVATE ${ARAVIS_LIBRARY_DIRS})
 target_link_libraries(metrics_test PRIVATE -lm ${ARAVIS_LIBRARIES})
