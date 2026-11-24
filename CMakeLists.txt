@@ -27,13 +27,13 @@ include_directories(src src/aravis)
 
 # The interface description (limrendir.ui) is embedded in the executable, so that limrendir can be run from any folder
 pkg_get_variable(GLIB_COMPILE_RESOURCES gio-2.0 glib_compile_resources)
-file(GLOB LIMRENDIR_ICONS ${CMAKE_CURRENT_SOURCE_DIR}/icons/scalable/actions/*.svg)
+file(GLOB LIMRENDIR_ICONS ${CMAKE_CURRENT_SOURCE_DIR}/data/icons/scalable/actions/*.svg)
 set(LIMRENDIR_RESOURCES_C ${CMAKE_CURRENT_BINARY_DIR}/limrendir_resources.c)
 add_custom_command(
         OUTPUT ${LIMRENDIR_RESOURCES_C}
         COMMAND ${GLIB_COMPILE_RESOURCES} --target=${LIMRENDIR_RESOURCES_C} --generate-source
-                --sourcedir=${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.gresource.xml
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.gresource.xml ${CMAKE_CURRENT_SOURCE_DIR}/limrendir.ui
+                --sourcedir=${CMAKE_CURRENT_SOURCE_DIR}/data ${CMAKE_CURRENT_SOURCE_DIR}/data/limrendir.gresource.xml
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/data/limrendir.gresource.xml ${CMAKE_CURRENT_SOURCE_DIR}/data/limrendir.ui
                 ${LIMRENDIR_ICONS}
         COMMENT "Embedding limrendir.ui")
 

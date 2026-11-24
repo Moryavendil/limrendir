@@ -8,7 +8,7 @@
 #   --no-terminal   do not open a terminal next to limrendir (by default one shows the log: warnings, errors)
 #   path            the limrendir binary (default: build/limrendir, or limrendir, next to this script)
 #
-# Application icon: icons/limrendir.svg (preferred) or icons/limrendir.png (256x256), if present.
+# Application icon: data/icons/limrendir.svg (preferred) or data/icons/limrendir.png (256x256), if present.
 # Run the script again after adding or changing it, or after moving the binary.
 # To remove everything: ./uninstall-launcher.sh
 
@@ -50,14 +50,14 @@ entry=$applications_dir/limrendir.desktop
 # Application icon, installed in the user icon theme. Without one, a generic camera icon of the system theme.
 icon=camera-video
 for extension in svg png; do
-    if [ -f "$repo_dir/icons/limrendir.$extension" ]; then
+    if [ -f "$repo_dir/data/icons/limrendir.$extension" ]; then
         if [ "$extension" = svg ]; then
             icon_dir=$data_dir/icons/hicolor/scalable/apps
         else
             icon_dir=$data_dir/icons/hicolor/256x256/apps
         fi
         mkdir -p "$icon_dir"
-        cp "$repo_dir/icons/limrendir.$extension" "$icon_dir/"
+        cp "$repo_dir/data/icons/limrendir.$extension" "$icon_dir/"
         icon=limrendir
         gtk-update-icon-cache -q -t "$data_dir/icons/hicolor" 2>/dev/null || true
         break
