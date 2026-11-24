@@ -1,23 +1,23 @@
 /* Aravis - Digital camera library
  *
- * Copyright © 2009-2019 Emmanuel Pacaud
+ * Copyright © 2009-2025 Emmanuel Pacaud <emmanuel.pacaud@free.fr>
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
- * Author: Emmanuel Pacaud <emmanuel@gnome.org>
+ * Author: Emmanuel Pacaud <emmanuel.pacaud@free.fr>
  */
 
 #ifndef ARV_DEBUG_PRIVATE_H
@@ -56,6 +56,7 @@ typedef enum {
 	ARV_DEBUG_CATEGORY_EVALUATOR,
 	ARV_DEBUG_CATEGORY_VIEWER,
 	ARV_DEBUG_CATEGORY_MISC,
+	ARV_DEBUG_CATEGORY_GENTL,
 	ARV_DEBUG_CATEGORY_N_ELEMENTS
 } ArvDebugCategory;
 
@@ -72,6 +73,7 @@ extern ArvDebugCategoryInfos arv_debug_category_infos[];
 #define arv_warning_device(...)		arv_warning (ARV_DEBUG_CATEGORY_DEVICE, __VA_ARGS__)
 #define arv_info_device(...) 		arv_info (ARV_DEBUG_CATEGORY_DEVICE, __VA_ARGS__)
 #define arv_debug_device(...)		arv_debug (ARV_DEBUG_CATEGORY_DEVICE, __VA_ARGS__)
+#define arv_trace_device(...)           arv_trace (ARV_DEBUG_CATEGORY_DEVICE, __VA_ARGS__)
 
 #define arv_warning_chunk(...)		arv_warning (ARV_DEBUG_CATEGORY_CHUNK, __VA_ARGS__)
 #define arv_info_chunk(...) 		arv_info (ARV_DEBUG_CATEGORY_CHUNK, __VA_ARGS__)
@@ -84,6 +86,7 @@ extern ArvDebugCategoryInfos arv_debug_category_infos[];
 #define arv_warning_stream_thread(...)	arv_warning (ARV_DEBUG_CATEGORY_STREAM_THREAD, __VA_ARGS__)
 #define arv_info_stream_thread(...) 	arv_info (ARV_DEBUG_CATEGORY_STREAM_THREAD, __VA_ARGS__)
 #define arv_debug_stream_thread(...)	arv_debug (ARV_DEBUG_CATEGORY_STREAM_THREAD, __VA_ARGS__)
+#define arv_trace_stream_thread(...)	arv_trace (ARV_DEBUG_CATEGORY_STREAM_THREAD, __VA_ARGS__)
 
 #define arv_warning_cp(...)		arv_warning (ARV_DEBUG_CATEGORY_CP, __VA_ARGS__)
 #define arv_info_cp(...) 		arv_info (ARV_DEBUG_CATEGORY_CP, __VA_ARGS__)
@@ -110,6 +113,11 @@ extern ArvDebugCategoryInfos arv_debug_category_infos[];
 #define arv_warning_misc(...)		arv_warning (ARV_DEBUG_CATEGORY_MISC, __VA_ARGS__)
 #define arv_info_misc(...) 		arv_info (ARV_DEBUG_CATEGORY_MISC, __VA_ARGS__)
 #define arv_debug_misc(...)		arv_debug (ARV_DEBUG_CATEGORY_MISC, __VA_ARGS__)
+
+#define arv_warning_gentl(...)		arv_warning (ARV_DEBUG_CATEGORY_GENTL, __VA_ARGS__)
+#define arv_info_gentl(...) 		arv_info (ARV_DEBUG_CATEGORY_GENTL, __VA_ARGS__)
+#define arv_debug_gentl(...)		arv_debug (ARV_DEBUG_CATEGORY_GENTL, __VA_ARGS__)
+#define arv_trace_gentl(...)		arv_trace (ARV_DEBUG_CATEGORY_GENTL, __VA_ARGS__)
 
 #define arv_warning_viewer(...)		arv_warning (ARV_DEBUG_CATEGORY_VIEWER, __VA_ARGS__)
 #define arv_info_viewer(...)	 	arv_info (ARV_DEBUG_CATEGORY_VIEWER, __VA_ARGS__)
